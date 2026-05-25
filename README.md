@@ -1,78 +1,106 @@
-# NPS Vatsalya Report Generator
-
-A free, single-page web tool for generating personalised **NPS Vatsalya** financial projection reports.
-
-Built for NPS advisors and agents to quickly create client-ready reports showing corpus at 18, wealth at retirement, and monthly pension projections.
+# Yatinidhi Solar — Quotation Generator v1.0
+### First Draft · For Internal Review
 
 ---
 
-## 🔗 Live Tool
+## What's in This Build
 
-**[Open Generator →](https://prakharv8.github.io/Test-Cases/)**
-
----
-
-## 📋 Features
-
-- **Child & Returns** — enter child's name, current age, expected return %, annuity rate, and retirement age
-- **Contribution before 18** — choose SIP Only / One Time / Both, with Monthly or Annual SIP option
-- **Additional SIP after 18** — optional post-18 contribution
-- **Live chart** — year-by-year wealth growth (Total Invested vs Wealth via Compounding)
-- **Live report card** — updates as you type, with logos of NPS Vatsalya, PFRDA, NPS Trust
-- **PDF download** — one-click download of the report card as a PDF
-- **Works on all devices** — phone, tablet, desktop
+**File:** `yatinidhi-quotation-v1.html`
+**Type:** Single HTML file — no server, no dependencies, works offline
 
 ---
 
-## 📐 Calculation Method
+## How to Open & Use
 
-| Formula | Used For |
+1. **Double-click** `yatinidhi-quotation-v1.html` to open in browser
+2. Fill the **Build Quotation** form
+3. Click **Generate Quotation** to see the preview
+4. Click **Print / Save PDF**
+   - Chrome: Set margins to **None**, enable **Background graphics**
+   - Edge: Same settings
+
+---
+
+## Features Included
+
+### Form Side
+| Feature | Status |
 |---|---|
-| `M × [((1+r)^n − 1) / r] × (1+r)` | Monthly SIP future value |
-| `A × [((1+R)^N − 1) / R] × (1+R)` | Annual SIP future value |
-| `P × (1 + R)^years` | Lump sum compound growth |
-| `Corpus × annuity% / 12` | Monthly pension |
+| Customer Name, Mobile, Email, Address, Roof Type | ✅ Editable |
+| Employee Name, Designation, Contact | ✅ Editable |
+| System Size (1kW – 10kW) click cards | ✅ |
+| Custom Rate Override | ✅ |
+| System Type (On-Grid / Off-Grid / Hybrid) | ✅ |
+| Panel, Inverter, Structure, Wire, ACDB brand dropdowns | ✅ |
+| AMC 1yr / 3yr / 5yr toggle | ✅ with live price |
+| Battery Backup toggle | ✅ with live price |
+| **Roof White Heat-Reflective Paint** | ✅ NEW |
+| Extra Civil Work / Extra Cable (at actual) | ✅ |
+| Live GROSS TOTAL + Subsidy + NET calculation | ✅ |
+| Subsidy toggle (Central CFA + UP State) | ✅ |
+| Additional Notes / Remarks | ✅ |
 
-Where `r = annual_rate / 12 / 100`, `n = months`, `R = annual_rate / 100`, `N = years`
+### Roof White Paint — How It Works
+- Rate: ₹30/sq.ft (editable)
+- **Auto mode:** 100 sq.ft per kW (so 3kW = 300 sq.ft = ₹9,000)
+- **Manual mode:** Enter exact sq.ft directly
+- Shows live breakup: `X sq.ft × ₹30 = ₹Y`
+- Cost flows into add-on total and GROSS TOTAL automatically
 
-**Verified against:**
-- npsvatsalya.com — ₹10,000/yr @ 10% → ₹5L at 18 ✅
-- Business Standard — ₹10,000/yr @ 10% → ₹2.75 Cr at 60 ✅
+### Pricing Calculator
+- Add-on prices sum correctly into GROSS TOTAL
+- "At Actual" items (civil, cable) show as label only — not counted in total
+- Grand Total shown in words (Indian number system: Lakhs/Crore)
+- Subsidy rows shown separately and subtracted to NET COST
 
----
-
-## 📁 Files
-
-| File | Purpose |
-|---|---|
-| `index.html` | Complete self-contained tool (HTML + CSS + JS + logos) |
-| `README.md` | This file |
-
----
-
-## 🚀 How to Use
-
-1. Open the link above on any device
-2. Fill in child details and contribution amounts
-3. Results update live as you type
-4. Click **Download PDF Report** to save the report card
-
----
-
-## 🛠 Tech Stack
-
-- Pure HTML, CSS, JavaScript — no framework
-- [Chart.js 4.4.0](https://cdn.jsdelivr.net/npm/chart.js@4.4.0/) — wealth growth chart
-- [html2canvas 1.4.1](https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/) — PDF capture
-- [jsPDF 2.5.1](https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/) — PDF generation
-- [DM Sans](https://fonts.google.com/specimen/DM+Sans) — Google Fonts
-
----
-
-## ⚠️ Disclaimer
-
-Projections are illustrative only. Actual returns may vary. NPS is market-linked and subject to risk. Past performance is not indicative of future results.
+### Quotation Document
+- Company header with branding, GSTN, UPNEDA/MNRE badge
+- Customer + Proposal detail boxes side by side
+- Full Bill of Materials table (dynamically includes selected add-ons)
+- Grand Total row + Subsidy rows + Net Cost row
+- GST / Structure / Finance note boxes
+- Roof paint breakup note (if selected)
+- Government Subsidy table (if subsidy toggle ON)
+- Warranty details grid (4 items)
+- Payment terms bar (20% / 70% / 10%)
+- Bank account details
+- Dual signature block (Yatinidhi + Customer)
 
 ---
 
-*For internal use by NPS advisors. Powered by Compounding.*
+## Draft Issues — Please Review
+
+| # | Item | Action Needed |
+|---|---|---|
+| 1 | Solar panel warranty years left blank in source PDF | Filled as "25–30 Years" — confirm with OEM |
+| 2 | Quotation serial number not in source | Add if needed (e.g. YS/2026/0001) |
+| 3 | GSTN on header: 09AABCY0047K1Z7 | Confirm this is current |
+| 4 | Roof paint sqft ratio: 100 sqft/kW | Confirm with operations team |
+| 5 | AMC pricing: 1yr=₹5k, 3yr=₹12k, 5yr=₹18k | Confirm current rates |
+| 6 | Battery add-on: ₹25,000 flat | Confirm or change to "at actual" |
+
+---
+
+## To Embed on Website
+
+**Option A — iframe (simplest)**
+```html
+<iframe src="yatinidhi-quotation-v1.html" width="100%" height="800px" frameborder="0"></iframe>
+```
+
+**Option B — Full page embed**
+Upload file to your hosting and link directly as a page.
+
+**Option C — Developer conversion**
+Hand the file to a developer to convert to React/Vue if integrating into an existing CMS or website stack.
+
+---
+
+## Next Steps After Review
+
+- [ ] Confirm draft issues above
+- [ ] Add quotation serial number logic
+- [ ] Add logo image (currently text-based)
+- [ ] Test print output on actual printer / PDF
+- [ ] Add more panel wattage options if needed
+- [ ] Consider adding customer WhatsApp share option
