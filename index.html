@@ -6,7 +6,6 @@
 <title>NPS Vatsalya Report Generator</title>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet"/>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <style>
 :root{
@@ -83,6 +82,23 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--tx);}
 .dlbtn{width:100%;padding:12px;border-radius:10px;border:none;background:linear-gradient(135deg,var(--or),var(--or2));color:#fff;font-size:14px;font-weight:800;font-family:inherit;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;box-shadow:0 4px 16px rgba(232,56,13,.38);transition:all .2s;margin-top:8px;}
 .dlbtn:hover{transform:translateY(-1px);box-shadow:0 6px 20px rgba(232,56,13,.48);}
 .dlbtn:disabled{background:#94a3b8;box-shadow:none;cursor:not-allowed;transform:none;}
+
+/* IMAGE PREVIEW PANEL */
+.img-panel{
+  max-width:1260px;margin:0 auto 24px;
+  background:#1e293b;border-radius:16px;
+  padding:20px;text-align:center;
+  display:none;
+}
+.img-panel img{max-width:100%;border-radius:10px;display:block;margin:0 auto;box-shadow:0 8px 32px rgba(0,0,0,.5);}
+.img-panel .msg{color:#e2e8f0;margin-top:14px;font-size:13px;line-height:1.9;}
+.img-panel .dl-btn-img{
+  display:inline-block;margin-top:12px;
+  background:linear-gradient(135deg,#E8380D,#F58220);
+  color:#fff;padding:10px 26px;border-radius:9px;
+  text-decoration:none;font-weight:800;font-size:14px;
+  box-shadow:0 3px 12px rgba(232,56,13,.35);
+}
 
 /* RIGHT */
 .rp{display:flex;flex-direction:column;gap:18px;}
@@ -334,9 +350,9 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--tx);}
       </div>
     </div>
 
-    <button class="dlbtn" id="dlBtn" onclick="downloadPDF()">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><polyline points="9 15 12 18 15 15"/></svg>
-      Download PDF Report
+    <button class="dlbtn" id="dlBtn" onclick="saveImage()">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+      Save Report Image
     </button>
 
   </div>
@@ -474,6 +490,18 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--tx);}
 
 </div><!-- /rp -->
 </div><!-- /wrap -->
+<!-- IMAGE PREVIEW -->
+<div class="img-panel" id="img-panel">
+  <img id="out-img" src="" alt="NPS Vatsalya Report"/>
+  <div class="msg">
+    <strong>&#128241; iPhone:</strong> Press &amp; hold image &rarr; <strong>Add to Photos</strong> &nbsp;|&nbsp;
+    <strong>&#129494; Android:</strong> Press &amp; hold image &rarr; <strong>Download image</strong> &nbsp;|&nbsp;
+    <strong>&#128187; Desktop:</strong> Right-click image &rarr; <strong>Save image as</strong>
+    <br/>
+    <a id="dl-link" class="dl-btn-img" href="#" download="NPS_Vatsalya.png">&#11015; Download Image</a>
+  </div>
+</div>
+
 <div id="toast"></div>
 
 <script>
@@ -723,28 +751,48 @@ function up(){
   drawChart(calc);
 }
 
-/* ═══ PDF ═══ */
-function showToast(msg){var t=R('toast');t.textContent=msg;t.classList.add('show');setTimeout(function(){t.classList.remove('show');},3000);}
-function downloadPDF(){
-  var btn=R('dlBtn');btn.disabled=true;btn.textContent='Generating PDF...';
+/* ═══ SAVE IMAGE ═══ */
+function showToast(msg){var t=R('toast');t.textContent=msg;t.classList.add('show');setTimeout(function(){t.classList.remove('show');},3500);}
+
+function saveImage(){
+  var btn=R('dlBtn');
+  btn.disabled=true;
+  btn.textContent='Generating...';
   up();
   setTimeout(function(){
-    html2canvas(R('rc'),{scale:3,useCORS:true,allowTaint:true,backgroundColor:'#fff',logging:false,scrollX:0,scrollY:0})
-    .then(function(canvas){
-      var img=canvas.toDataURL('image/jpeg',0.97);
-      var doc=new window.jspdf.jsPDF({orientation:'portrait',unit:'mm',format:'a4'});
-      var pw=doc.internal.pageSize.getWidth(),ph=doc.internal.pageSize.getHeight();
-      var mg=8,uw=pw-mg*2,ar2=canvas.width/canvas.height,dw=uw,dh=dw/ar2;
-      if(dh>ph-mg*2){dh=ph-mg*2;dw=dh*ar2;}
-      doc.addImage(img,'JPEG',mg+(uw-dw)/2,mg+(ph-mg*2-dh)/2,dw,dh);
-      var fn=(R('f1').value||'Client').replace(/\s+/g,'_');
-      doc.save('NPS_Vatsalya_'+fn+'.pdf');
+    html2canvas(R('rc'),{
+      scale:3,
+      useCORS:true,
+      allowTaint:true,
+      backgroundColor:'#ffffff',
+      logging:false,
+      scrollX:0,
+      scrollY:0
+    }).then(function(canvas){
+      var name=(R('f1').value||'NPS_Vatsalya').replace(/\s+/g,'_');
+      var url=canvas.toDataURL('image/png',1.0);
+
+      /* Show preview panel on same page */
+      var panel=R('img-panel');
+      var img=R('out-img');
+      var dlLink=R('dl-link');
+      img.src=url;
+      dlLink.href=url;
+      dlLink.download=name+'_NPS_Vatsalya.png';
+      panel.style.display='block';
+      panel.scrollIntoView({behavior:'smooth',block:'start'});
+
       btn.disabled=false;
-      btn.innerHTML='<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><polyline points="9 15 12 18 15 15"/></svg> Download PDF Report';
-      showToast('✅ PDF saved!');
-    }).catch(function(e){btn.disabled=false;btn.textContent='Download PDF Report';showToast('❌ '+e.message);});
+      btn.innerHTML='<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg> Save Report Image';
+      showToast('\u2705 Image ready — save it below!');
+    }).catch(function(e){
+      btn.disabled=false;
+      btn.innerHTML='<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg> Save Report Image';
+      showToast('\u274C Error: '+e.message);
+    });
   },300);
 }
+
 
 /* Init */
 updSlider(60);
