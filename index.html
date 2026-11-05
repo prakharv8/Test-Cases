@@ -1,1000 +1,1565 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-<meta charset="UTF-8"/>
-<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<title>Yatinidhi Solar – Quotation Generator</title>
-<link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet"/>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>NCR Conquest — Branch Campaign (Live)</title>
+<style>:root{color-scheme:light}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif}img{max-width:100%}[hidden]{display:none!important}</style>
 
+<!--
+  =====================================================================
+  NCR Conquest — standalone, self-hosted build
+  =====================================================================
+  This is the same app that lives in the Claude artifact, rebuilt to run
+  as a real website: Google Maps instead of the hand-drawn SVG map, and
+  Firebase Firestore instead of Claude's built-in artifact database. All
+  gameplay/filter/visit-log/admin logic below is unchanged from the
+  original.
+
+  BEFORE THIS WILL WORK, fill in the two placeholders just below
+  (GOOGLE_MAPS_API_KEY and FIREBASE_CONFIG) — see README.md for how to
+  get both. Everything else in this file can be left as-is.
+  =====================================================================
+-->
+<script>
+  // 1) Paste your Google Maps JavaScript API key here (Cloud Console ->
+  //    APIs & Services -> Credentials). See README.md step 4.
+  var GOOGLE_MAPS_API_KEY = "YOUR_GOOGLE_MAPS_API_KEY";
+
+  // 2) Paste your Firebase web app config here (Firebase Console ->
+  //    Project settings -> General -> Your apps -> Web app). See
+  //    README.md step 2.
+  var FIREBASE_CONFIG = {
+    apiKey: "YOUR_FIREBASE_API_KEY",
+    authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
+    projectId: "YOUR_PROJECT_ID",
+    storageBucket: "YOUR_PROJECT_ID.appspot.com",
+    messagingSenderId: "YOUR_SENDER_ID",
+    appId: "YOUR_APP_ID"
+  };
+</script>
+
+<!-- Firebase (Firestore) -->
+<script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore-compat.js"></script>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700;800&family=Libre+Franklin:wght@500;700;800&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
 <style>
-/* ===== VARIABLES ===== */
-:root {
-  --green-dark:  #0d3b0d;
-  --green-mid:   #1b5e20;
-  --green-main:  #2e7d32;
-  --green-light: #e8f5e9;
-  --green-pale:  #f1f8f1;
-  --gold:        #f9a825;
-  --gold-light:  #fff8e1;
-  --text:        #1a2e1a;
-  --text-soft:   #4a6a4a;
-  --border:      #c8e6c9;
-  --white:       #ffffff;
-  --shadow:      0 2px 16px rgba(27,94,32,0.10);
-  --radius:      12px;
-  --font-body:   'DM Sans', sans-serif;
-  --font-display:'Rajdhani', sans-serif;
+:root{
+  --bg:#E9DCB8; --surface:#FBF3DE; --surface-2:#F1E3C0;
+  --fg:#2E210E; --muted:#7A6442; --line:#D2BD8C;
+  --accent:#9C6B1F; --accent-fg:#FFFFFF;
+  --pin-green:#1f9e46; --pin-black:#15181d; --pin-office:#2563c9;
+  --status-open:#1D7A4C; --status-occupied:#8A6B16; --status-dead:#A8314B; --status-none:#8893A0;
+  --shadow:0 10px 30px -12px rgba(46,33,14,.35);
+  --font-display:"Cinzel","Libre Franklin",system-ui,sans-serif;
+  --font-body:"IBM Plex Sans",system-ui,sans-serif;
+  --font-mono:"IBM Plex Mono",ui-monospace,monospace;
+  color-scheme:light;
 }
-
-/* ===== RESET ===== */
-*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-html { font-size: 15px; scroll-behavior: smooth; }
-body { font-family: var(--font-body); background: #edf5ed; color: var(--text); min-height: 100vh; }
-
-/* ===== SCREEN LAYOUT ===== */
-.app-header {
-  background: linear-gradient(135deg, var(--green-dark) 0%, var(--green-mid) 55%, var(--green-main) 100%);
-  padding: 18px 32px;
-  display: flex; align-items: center; justify-content: space-between;
+*{box-sizing:border-box}
+html,body{height:100%}
+body{
+  margin:0; background:var(--bg); color:var(--fg); font-family:var(--font-body);
+  overflow:hidden;
 }
-.app-header .brand { font-family: var(--font-display); font-size: 26px; font-weight: 700; color: #fff; letter-spacing: 2px; }
-.app-header .sub   { font-size: 10px; color: #a5d6a7; letter-spacing: 3px; margin-top: -2px; }
-.app-header .contact { font-size: 11px; color: #c8e6c9; text-align: right; }
-
-.tabs {
-  display: flex; gap: 10px; padding: 16px 32px 0;
-  max-width: 1020px; margin: 0 auto;
+.app{height:100%; display:flex; flex-direction:column;}
+header.topbar{
+  display:flex; align-items:center; gap:.75rem; flex-wrap:wrap;
+  padding:.65rem 16px .65rem 16px;
+  background:var(--surface); border-bottom:1px solid var(--line); z-index:20;
 }
-.tab-btn {
-  padding: 9px 26px; border-radius: 999px; font-family: var(--font-body);
-  font-weight: 600; font-size: 13px; cursor: pointer; transition: all .2s;
-  border: 2px solid transparent;
+h1.brand{font-family:var(--font-display); font-weight:800; font-size:1.05rem; letter-spacing:.01em; margin:0; white-space:nowrap;}
+h1.brand span{color:var(--accent)}
+.topbar-meta{font-family:var(--font-mono); font-size:.72rem; color:var(--muted); white-space:nowrap}
+.identity{margin-left:auto; display:flex; align-items:center; gap:.5rem; font-size:.82rem;}
+.identity label{color:var(--muted); font-weight:500}
+select, input[type=text], input[type=date], input[type=number], textarea{
+  font-family:var(--font-body); font-size:.85rem; color:var(--fg);
+  background:var(--surface-2); border:1px solid var(--line); border-radius:7px;
+  padding:.4rem .55rem;
 }
-.tab-btn.active   { background: var(--green-mid); color: #fff; border-color: var(--green-mid); }
-.tab-btn.inactive { background: #fff; color: var(--green-mid); border-color: var(--border); }
-.tab-btn.inactive:hover { background: var(--green-light); }
-
-.form-wrap {
-  max-width: 1020px; margin: 0 auto; padding: 16px 32px 48px;
+select:focus, input:focus, textarea:focus{outline:2px solid var(--accent); outline-offset:1px}
+.main{flex:1; display:flex; min-height:0}
+nav.rail{
+  width:300px; min-width:240px; max-width:340px; flex-shrink:0;
+  background:var(--surface); border-right:1px solid var(--line);
+  display:flex; flex-direction:column; overflow:hidden;
 }
-
-/* ===== CARD ===== */
-.card {
-  background: var(--white); border-radius: var(--radius);
-  border: 1px solid var(--border); box-shadow: var(--shadow);
-  padding: 22px 24px; margin-bottom: 18px;
+.rail-section{padding:.85rem 16px .85rem .9rem; border-bottom:1px solid var(--line)}
+.rail-section:last-child{flex:1; overflow:hidden; display:flex; flex-direction:column; min-height:0}
+.rail-title{font-family:var(--font-display); font-weight:700; font-size:.72rem; letter-spacing:.07em; text-transform:uppercase; color:var(--muted); margin:0 0 .5rem;}
+.filter-scroll{max-height:172px; overflow-y:auto; padding-right:2px}
+.filter-row{display:flex; align-items:center; gap:.5rem; margin:.3rem 0; font-size:.84rem}
+.filter-row input[type=checkbox]{width:16px;height:16px; accent-color:var(--accent); flex-shrink:0}
+.swatch{width:11px;height:11px;border-radius:3px; flex-shrink:0}
+.count-pill{font-family:var(--font-mono); font-size:.72rem; color:var(--muted); margin-left:auto;}
+.searchbox{width:100%; margin-bottom:.1rem}
+#branchList{flex:1; overflow-y:auto; margin:0; padding:0; list-style:none}
+#branchList li{padding:.5rem .55rem; border-bottom:1px solid var(--line); cursor:pointer; display:flex; align-items:center; gap:.5rem; font-size:.82rem;}
+#branchList li:hover{background:var(--surface-2)}
+#branchList li.active{background:var(--surface-2); box-shadow:inset 3px 0 0 var(--accent)}
+#branchList .b-name{flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+#branchList .b-icon{flex-shrink:0}
+#branchList .b-status{font-family:var(--font-mono); font-size:.64rem; padding:.1rem .4rem; border-radius:20px; color:#fff; flex-shrink:0;}
+.stage{flex:1; position:relative; overflow:hidden; background:var(--bg);}
+#map{position:absolute; inset:0;}
+.zone-tabs{
+  position:absolute; top:12px; left:50%; transform:translateX(-50%);
+  display:flex; gap:.3rem; background:rgba(251,243,222,.92);
+  border:1px solid var(--line); border-radius:999px; padding:.3rem; box-shadow:var(--shadow);
+  z-index:10; max-width:94%; overflow-x:auto; backdrop-filter:blur(3px);
 }
-.card-title {
-  font-family: var(--font-display); font-size: 18px; font-weight: 700;
-  color: var(--green-mid); letter-spacing: .5px; margin-bottom: 14px;
-  padding-bottom: 8px; border-bottom: 1.5px solid var(--border);
+.zone-tabs button{font-family:var(--font-body); font-size:.74rem; font-weight:600; white-space:nowrap; padding:.35rem .7rem; border-radius:999px; border:none; background:transparent; color:var(--muted); cursor:pointer; flex-shrink:0;}
+.zone-tabs button.active{background:var(--accent); color:var(--accent-fg)}
+.map-controls{position:absolute; right:14px; bottom:14px; display:flex; flex-direction:column; gap:.4rem; z-index:10;}
+.map-controls button{width:34px; height:34px; border-radius:9px; border:1px solid var(--line); background:var(--surface); color:var(--fg); font-size:1.05rem; font-weight:700; cursor:pointer; box-shadow:var(--shadow);}
+.legend{
+  position:absolute; left:14px; bottom:14px;
+  background:rgba(251,243,222,.92); border:1px solid var(--line);
+  border-radius:10px; padding:.55rem .7rem; font-size:.72rem; box-shadow:var(--shadow);
+  display:flex; flex-direction:column; gap:.3rem; backdrop-filter:blur(3px); max-width:190px;
 }
-
-/* ===== FORM ELEMENTS ===== */
-.grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
-.grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; }
-.grid-6 { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; }
-.span-2 { grid-column: span 2; }
-
-.field label {
-  display: block; font-size: 10px; font-weight: 700; color: var(--green-main);
-  text-transform: uppercase; letter-spacing: .08em; margin-bottom: 4px;
+.legend-row{display:flex; align-items:center; gap:.4rem}
+.legend-dot{width:10px;height:10px;border-radius:50%}
+.legend-ring{width:10px;height:10px;border-radius:50%; border:2px solid; background:transparent}
+.lock-note{font-size:.78rem; color:var(--status-occupied); background:rgba(138,107,22,.12); border-radius:8px; padding:.5rem .6rem; margin:0 0 .5rem;}
+.entry-list{display:flex; flex-direction:column; gap:.5rem; max-height:220px; overflow-y:auto; margin-bottom:.6rem}
+.entry-card{background:var(--surface-2); border:1px solid var(--line); border-radius:8px; padding:.5rem .6rem; font-size:.8rem}
+.entry-top{display:flex; justify-content:space-between; font-family:var(--font-mono); font-size:.7rem; color:var(--muted)}
+.entry-mid{font-weight:600; margin:.2rem 0}
+.entry-note{color:var(--muted); font-size:.76rem; margin-bottom:.2rem}
+.entry-bottom{display:flex; flex-wrap:wrap; gap:.3rem}
+.geo-badge{font-family:var(--font-mono); font-size:.68rem; padding:.08rem .45rem; border-radius:20px; white-space:nowrap}
+.geo-badge.ok{background:rgba(29,122,76,.18); color:var(--status-open)}
+.geo-badge.warn{background:rgba(168,49,75,.18); color:var(--status-dead)}
+.geo-badge.none{background:rgba(136,147,160,.18); color:var(--status-none)}
+.visit-form{display:flex; flex-direction:column; gap:.5rem; background:var(--surface-2); border:1px solid var(--line); border-radius:10px; padding:.7rem .75rem;}
+.visit-form input, .visit-form select{width:100%}
+.visit-form input:disabled, .visit-form select:disabled, .visit-form button:disabled{opacity:.5; cursor:not-allowed}
+.geo-status{font-size:.72rem; color:var(--muted); margin:0; min-height:1.1em}
+.meeting-row{position:relative; display:flex; flex-direction:column; gap:.4rem; background:var(--surface); border:1px solid var(--line); border-radius:8px; padding:.6rem .6rem .6rem; margin-bottom:.1rem;}
+.meeting-row .field{gap:.2rem}
+.meeting-row .meet-remove{position:absolute; top:.35rem; right:.35rem; background:none; border:none; color:var(--muted); font-size:1rem; line-height:1; cursor:pointer; padding:.1rem .3rem;}
+.meeting-row .meet-amount-wrap{display:none}
+.meeting-row .meet-amount-wrap.show{display:flex}
+.meet-index{font-family:var(--font-mono); font-size:.68rem; color:var(--muted); text-transform:uppercase; letter-spacing:.05em}
+#monitorBackdrop{position:fixed; inset:0; background:rgba(10,15,22,.45); z-index:39; opacity:0; pointer-events:none; transition:opacity .15s ease;}
+#monitorBackdrop.open{opacity:1; pointer-events:auto}
+#monitorPanel{position:fixed; top:6vh; left:50%; transform:translate(-50%,-10px); width:min(860px, 92vw); max-height:86vh; background:var(--surface); border:1px solid var(--line); border-radius:14px; box-shadow:var(--shadow); z-index:40; display:flex; flex-direction:column; opacity:0; pointer-events:none; transition:opacity .15s ease, transform .15s ease;}
+#monitorPanel.open{opacity:1; pointer-events:auto; transform:translate(-50%,0)}
+.monitor-head{display:flex; align-items:center; justify-content:space-between; padding:1rem 1.1rem .7rem; border-bottom:1px solid var(--line)}
+.monitor-head h2{font-family:var(--font-display); font-weight:700; font-size:1.05rem; margin:0}
+.monitor-body{flex:1; overflow-y:auto; padding:1rem 1.1rem 1.3rem; display:flex; flex-direction:column; gap:1.2rem; font-size:.84rem}
+.monitor-stats{display:flex; gap:1rem; flex-wrap:wrap; font-family:var(--font-mono); font-size:.78rem; color:var(--muted)}
+table.monitor-table{width:100%; border-collapse:collapse; font-size:.8rem}
+table.monitor-table th, table.monitor-table td{text-align:left; padding:.4rem .5rem; border-bottom:1px solid var(--line)}
+table.monitor-table th{font-family:var(--font-display); font-size:.66rem; text-transform:uppercase; letter-spacing:.04em; color:var(--muted)}
+table.monitor-table tbody tr:hover{background:var(--surface-2)}
+.feed-row{display:flex; gap:.5rem; align-items:baseline; padding:.45rem 0; border-bottom:1px solid var(--line); font-size:.8rem; flex-wrap:wrap}
+.feed-row .fl{font-weight:700}
+.feed-row .muted{color:var(--muted); font-size:.74rem}
+.conquest-meter{display:flex; flex-direction:column; gap:.4rem}
+.conquest-big{font-family:var(--font-display); font-weight:800; font-size:1.35rem; color:var(--accent)}
+.conquest-row{display:flex; align-items:center; gap:.6rem; font-size:.78rem}
+.conquest-row .zone-name{width:150px; flex-shrink:0; color:var(--muted)}
+.conquest-track{flex:1; height:10px; border-radius:6px; background:var(--surface-2); overflow:hidden; border:1px solid var(--line)}
+.conquest-fill{display:block; height:100%; background:linear-gradient(90deg, var(--accent), #fff); transition:width .3s ease}
+.conquest-pct{font-family:var(--font-mono); font-size:.72rem; color:var(--muted); width:90px; text-align:right; flex-shrink:0}
+.leader-crown{margin-right:.25rem}
+.rank-badge{font-family:var(--font-mono); font-size:.7rem; color:var(--accent); background:rgba(156,107,31,.14); border:1px solid rgba(156,107,31,.35); border-radius:20px; padding:.15rem .55rem; white-space:nowrap;}
+.trail-control{position:absolute; top:12px; right:14px; z-index:10; display:flex; align-items:center; gap:.35rem; background:rgba(251,243,222,.92); border:1px solid var(--line); border-radius:999px; padding:.3rem .5rem .3rem .7rem; box-shadow:var(--shadow); backdrop-filter:blur(3px); font-size:.72rem; color:var(--muted);}
+.trail-control select{padding:.25rem .4rem; font-size:.72rem; border-radius:999px}
+#authBackdrop{position:fixed; inset:0; background:rgba(10,15,22,.5); z-index:49; opacity:0; pointer-events:none; transition:opacity .15s ease;}
+#authBackdrop.open{opacity:1; pointer-events:auto}
+#authPanel{position:fixed; top:50%; left:50%; transform:translate(-50%,-46%); width:min(320px, 90vw); background:var(--surface); border:1px solid var(--line); border-radius:14px; box-shadow:var(--shadow); z-index:50; padding:1.1rem 1.2rem; opacity:0; pointer-events:none; transition:opacity .15s ease, transform .15s ease;}
+#authPanel.open{opacity:1; pointer-events:auto; transform:translate(-50%,-50%)}
+#authPanel h3{font-family:var(--font-display); font-weight:700; font-size:1rem; margin:0 0 .3rem}
+#authPanel p.auth-sub{font-size:.76rem; color:var(--muted); margin:0 0 .6rem}
+#authPanel input{width:100%}
+.auth-error{color:var(--status-dead); font-size:.78rem; margin:.4rem 0 0; min-height:1em}
+#sheetBackdrop{position:fixed; inset:0; background:rgba(10,15,22,.35); z-index:29; opacity:0; pointer-events:none; transition:opacity .15s ease;}
+#sheetBackdrop.open{opacity:1; pointer-events:auto}
+#sheet{position:fixed; top:0; right:0; height:100%; width:380px; max-width:92vw; background:var(--surface); border-left:1px solid var(--line); box-shadow:var(--shadow); z-index:30; transform:translateX(100%); transition:transform .18s ease; display:flex; flex-direction:column;}
+#sheet.open{transform:translateX(0)}
+.sheet-head{padding:1rem 1rem .6rem; border-bottom:1px solid var(--line); display:flex; align-items:flex-start; gap:.6rem;}
+.sheet-head .x{margin-left:auto; background:none; border:none; font-size:1.3rem; color:var(--muted); cursor:pointer; line-height:1;}
+.sheet-bank-chip{font-family:var(--font-mono); font-size:.68rem; font-weight:600; padding:.15rem .5rem; border-radius:20px; color:#fff; display:inline-block; margin-bottom:.35rem;}
+.sheet-name{font-family:var(--font-display); font-weight:700; font-size:1.05rem; margin:0; display:flex; align-items:center}
+.sheet-sub{font-size:.8rem; color:var(--muted); margin-top:.15rem}
+.sheet-body{flex:1; overflow-y:auto; padding:1rem; display:flex; flex-direction:column; gap:1rem}
+.field{display:flex; flex-direction:column; gap:.3rem}
+.field label{font-size:.72rem; font-weight:600; color:var(--muted); text-transform:uppercase; letter-spacing:.05em}
+.status-pick{display:flex; gap:.4rem; flex-wrap:wrap}
+.status-pick button{flex:1; min-width:70px; padding:.45rem .3rem; border-radius:8px; border:1px solid var(--line); background:var(--surface-2); color:var(--fg); font-size:.78rem; font-weight:600; cursor:pointer;}
+.status-pick button.active{color:#fff; border-color:transparent}
+textarea{resize:vertical; min-height:60px; font-size:.84rem}
+.claim-box{background:var(--surface-2); border:1px solid var(--line); border-radius:10px; padding:.7rem .8rem; font-size:.82rem; display:flex; flex-direction:column; gap:.3rem;}
+.claim-box .who{font-weight:700}
+.btn{font-family:var(--font-body); font-weight:600; font-size:.85rem; padding:.55rem .9rem; border-radius:9px; border:1px solid transparent; cursor:pointer;}
+.btn-primary{background:var(--accent); color:var(--accent-fg)}
+.btn-primary:disabled{opacity:.5; cursor:not-allowed}
+.btn-ghost{background:transparent; border-color:var(--line); color:var(--fg)}
+.sheet-foot{padding:.8rem 1rem; border-top:1px solid var(--line); display:flex; gap:.5rem}
+.save-note{font-size:.72rem; color:var(--muted); min-height:1.1em}
+.rail-toggle{display:none}
+.admin-add{padding:.6rem .55rem; border-top:1px dashed var(--line); font-size:.78rem}
+.admin-add summary{cursor:pointer; color:var(--muted); font-weight:600; font-size:.72rem; text-transform:uppercase; letter-spacing:.05em}
+.admin-add form{display:flex; flex-direction:column; gap:.4rem; margin-top:.5rem}
+#configBanner{position:fixed; top:0; left:0; right:0; z-index:60; background:#A8314B; color:#fff; font-size:.78rem; padding:.5rem 1rem; text-align:center;}
+[hidden]{display:none!important}
+@media (max-width:760px){
+  nav.rail{position:fixed; inset:0 auto 0 0; z-index:25; transform:translateX(-100%); transition:transform .18s ease; width:86vw; max-width:320px;}
+  nav.rail.open{transform:translateX(0)}
+  .rail-toggle{display:inline-flex; align-items:center; gap:.3rem}
+  #sheet{width:100%; max-width:100%}
 }
-.field input, .field select, .field textarea {
-  width: 100%; background: var(--white); border: 1.5px solid var(--border);
-  border-radius: 8px; padding: 9px 11px; font-family: var(--font-body);
-  font-size: 13px; color: var(--text); transition: border-color .2s, box-shadow .2s;
-  outline: none;
-}
-.field input:focus, .field select:focus, .field textarea:focus {
-  border-color: var(--green-main); box-shadow: 0 0 0 3px rgba(46,125,50,.12);
-}
-.field input::placeholder, .field textarea::placeholder { color: #aaa; }
-.field textarea { resize: vertical; min-height: 70px; }
-
-/* ===== SIZE CARDS ===== */
-.size-card {
-  border: 2px solid var(--border); border-radius: 10px; padding: 12px 8px;
-  cursor: pointer; text-align: center; background: #fff; transition: all .2s;
-}
-.size-card:hover  { border-color: var(--green-main); background: var(--green-pale); }
-.size-card.sel    { border-color: var(--green-main); background: var(--green-light); box-shadow: 0 0 0 3px rgba(165,214,167,.35); }
-.size-card .kw    { font-family: var(--font-display); font-size: 22px; font-weight: 700; color: var(--green-mid); }
-.size-card .kw span { font-size: 12px; }
-.size-card .panels { font-size: 10px; color: #777; margin: 2px 0; }
-.size-card .price  { font-size: 12px; font-weight: 700; color: var(--green-main); }
-
-/* ===== ADDON ROW ===== */
-.addon-row {
-  display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px;
-  border-radius: 8px; background: var(--green-pale); border: 1px solid var(--green-light);
-  margin-bottom: 7px; cursor: pointer; transition: background .15s;
-  user-select: none;
-}
-.addon-row:hover { background: var(--green-light); }
-.addon-row.sel   { background: var(--green-light); border-color: #a5d6a7; }
-.addon-row.locked { opacity: .65; cursor: default; }
-.addon-chk {
-  width: 19px; height: 19px; border-radius: 5px; border: 2px solid var(--border);
-  display: flex; align-items: center; justify-content: center; flex-shrink: 0;
-  background: #fff; margin-top: 1px; transition: all .15s;
-}
-.addon-row.sel .addon-chk { background: var(--green-main); border-color: var(--green-main); color: #fff; font-size: 12px; }
-.addon-lbl { flex: 1; font-size: 13px; line-height: 1.35; }
-.addon-lbl small { color: var(--text-soft); font-size: 11px; display: block; margin-top: 2px; }
-.addon-price { font-size: 13px; font-weight: 700; color: var(--green-mid); min-width: 90px; text-align: right; white-space: nowrap; }
-
-/* Roof paint sub-section */
-.paint-sub {
-  margin-top: 8px; padding: 10px 12px; background: #fffde7;
-  border-radius: 8px; border: 1px solid #ffe082;
-  display: none;
-}
-.paint-sub.show { display: block; }
-.paint-row { display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; }
-.paint-row .field { flex: 1; min-width: 140px; }
-.paint-info {
-  font-size: 12px; color: #e65100; font-weight: 600;
-  margin-top: 8px; padding: 6px 10px; background: #fff8e1;
-  border-radius: 6px; display: none;
-}
-.paint-info.show { display: block; }
-
-/* ===== PRICING SUMMARY ===== */
-.price-table { width: 100%; border-radius: 10px; overflow: hidden; }
-.price-row {
-  display: flex; justify-content: space-between; align-items: center;
-  padding: 9px 16px; font-size: 13px;
-}
-.price-row.alt { background: var(--green-pale); }
-.price-row.total { background: var(--green-mid); color: #fff; font-weight: 700; font-size: 15px; }
-.price-row.sub-row { background: var(--gold-light); color: #bf360c; font-size: 13px; }
-.price-row.net { background: var(--gold); color: #1a1a00; font-weight: 700; font-size: 15px; }
-
-/* ===== BUTTONS ===== */
-.btn-primary {
-  background: linear-gradient(135deg, var(--green-mid), var(--green-main));
-  color: #fff; padding: 11px 30px; border-radius: 999px;
-  font-family: var(--font-body); font-weight: 700; font-size: 14px;
-  border: none; cursor: pointer; box-shadow: 0 4px 14px rgba(27,94,32,.3);
-  transition: transform .15s, box-shadow .15s; letter-spacing: .02em;
-}
-.btn-primary:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(27,94,32,.4); }
-.btn-secondary {
-  background: #fff; color: var(--green-mid); padding: 11px 30px; border-radius: 999px;
-  font-family: var(--font-body); font-weight: 700; font-size: 14px;
-  border: 2px solid var(--border); cursor: pointer; transition: all .15s;
-}
-.btn-secondary:hover { background: var(--green-light); }
-.btn-row { display: flex; gap: 12px; justify-content: flex-end; margin-top: 6px; }
-
-/* subsidy toggle */
-.subsidy-toggle {
-  display: flex; align-items: center; gap: 10px; padding: 10px 14px;
-  background: var(--gold-light); border-radius: 10px; border: 1px solid #ffe082;
-  margin-bottom: 14px; cursor: pointer;
-}
-.subsidy-toggle input { width: 16px; height: 16px; accent-color: var(--green-mid); cursor: pointer; }
-.subsidy-toggle label { font-size: 13px; font-weight: 600; cursor: pointer; color: #5d4037; }
-
-/* ===== QUOTATION PREVIEW ===== */
-.preview-wrap {
-  max-width: 900px; margin: 0 auto; padding: 16px 32px 48px;
-  display: none;
-}
-.preview-wrap.show { display: block; }
-
-.quot {
-  background: #fff; border-radius: 14px; overflow: hidden;
-  box-shadow: 0 10px 40px rgba(0,0,0,.13);
-}
-.quot-header {
-  background: linear-gradient(135deg, var(--green-dark) 0%, var(--green-mid) 55%, var(--green-main) 100%);
-  padding: 26px 36px 18px;
-}
-.quot-brand { font-family: var(--font-display); font-size: 36px; font-weight: 700; color: #fff; letter-spacing: 2px; }
-.quot-byline { font-size: 10px; color: #a5d6a7; letter-spacing: 4px; margin-top: -3px; }
-.quot-addr   { font-size: 11px; color: #a5d6a7; margin-top: 8px; }
-.quot-gold-bar {
-  background: var(--gold); padding: 7px 36px;
-  display: flex; justify-content: space-between;
-  font-size: 12px; font-weight: 700; color: #1a1a00;
-}
-.quot-body { padding: 28px 36px; }
-
-.q-section { margin-bottom: 24px; }
-.q-title {
-  font-family: var(--font-display); font-size: 15px; font-weight: 700;
-  color: var(--green-mid); text-transform: uppercase; letter-spacing: .08em;
-  border-bottom: 2px solid var(--border); padding-bottom: 5px; margin-bottom: 12px;
-}
-
-.info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
-.info-cell label { font-size: 9px; font-weight: 700; color: #888; text-transform: uppercase; letter-spacing: .08em; display: block; }
-.info-cell p { font-size: 13px; font-weight: 600; color: var(--text); margin-top: 2px; }
-
-/* BOM Table */
-.bom-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
-.bom-table th { background: var(--green-mid); color: #fff; padding: 8px 10px; text-align: left; font-weight: 600; }
-.bom-table td { padding: 7px 10px; border-bottom: 1px solid var(--green-light); vertical-align: top; }
-.bom-table tr:nth-child(even) td { background: var(--green-pale); }
-.bom-table .row-total   td { background: var(--green-light) !important; font-weight: 700; }
-.bom-table .row-grand   td { background: var(--green-mid)   !important; color: #fff !important; font-weight: 700; font-size: 13.5px; }
-.bom-table .row-subsidy td { background: var(--gold-light)  !important; color: #bf360c !important; font-size: 12px; }
-.bom-table .row-net     td { background: var(--gold)        !important; color: #1a1a00 !important; font-weight: 700; font-size: 13.5px; }
-.bom-table td:last-child, .bom-table th:last-child { text-align: right; }
-
-/* warranty */
-.w-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-.w-item { background: var(--green-light); border-radius: 8px; padding: 9px 12px; }
-.w-item .wt { font-size: 10px; font-weight: 700; color: var(--green-mid); text-transform: uppercase; }
-.w-item .wv { font-size: 12.5px; font-weight: 600; margin-top: 2px; }
-
-/* payment bar */
-.pay-bar { display: flex; border-radius: 10px; overflow: hidden; margin-top: 8px; }
-.pay-seg { flex: 1; text-align: center; padding: 10px 6px; }
-.pay-seg:nth-child(1) { background: var(--green-dark); color: #fff; }
-.pay-seg:nth-child(2) { background: var(--green-mid); color: #fff; }
-.pay-seg:nth-child(3) { background: var(--green-main); color: #fff; }
-.pay-seg .pp { font-family: var(--font-display); font-size: 22px; font-weight: 700; }
-.pay-seg .pl { font-size: 10px; opacity: .9; }
-
-/* bank */
-.bank-grid { display: grid; grid-template-columns: repeat(3,1fr); gap: 10px; font-size: 12.5px; }
-.bank-item label { font-size: 9px; font-weight: 700; color: #888; text-transform: uppercase; letter-spacing: .08em; display: block; }
-
-/* note box */
-.note-box {
-  background: var(--gold-light); border-left: 4px solid var(--gold);
-  padding: 9px 13px; border-radius: 0 8px 8px 0; margin-bottom: 7px;
-  font-size: 11.5px; color: #5d4037; line-height: 1.5;
-}
-
-/* sig */
-.sig-row { display: grid; grid-template-columns: 1fr 1fr; gap: 30px; margin-top: 10px; }
-.sig-box { border-top: 2px dashed var(--border); padding-top: 10px; }
-.sig-name { font-size: 13.5px; font-weight: 700; margin-top: 4px; }
-.sig-role { font-size: 11.5px; color: var(--text-soft); }
-.sig-line { margin-top: 28px; border-top: 1px dashed #ccc; padding-top: 4px; font-size: 10.5px; color: #aaa; }
-
-/* govt badge */
-.govt-badge {
-  display: inline-block; border: 1.5px solid var(--gold); color: #e65100;
-  font-size: 10px; font-weight: 700; padding: 3px 9px; border-radius: 4px;
-  text-transform: uppercase; letter-spacing: .05em;
-}
-
-/* footer */
-.quot-footer {
-  background: var(--green-dark); color: #a5d6a7; padding: 12px 36px;
-  display: flex; justify-content: space-between; font-size: 11px;
-}
-
-/* ===== PRINT ===== */
-@media print {
-  .no-print { display: none !important; }
-  body { background: white; }
-  .quot { box-shadow: none; border-radius: 0; }
-  .preview-wrap { padding: 0; max-width: 100%; }
-  .quot-body { padding: 20px 28px; }
-  .quot-header { padding: 18px 28px 14px; }
-  .quot-gold-bar { padding: 5px 28px; }
-  .quot-footer { padding: 10px 28px; }
-  .bom-table th, .bom-table td { padding: 5px 8px; }
-  .q-section { margin-bottom: 16px; }
-}
-
-/* ===== HELPERS ===== */
-.hidden { display: none !important; }
-.flex-end { display: flex; justify-content: flex-end; }
 </style>
 </head>
 <body>
 
-<!-- APP HEADER -->
-<div class="app-header no-print">
-  <div>
-    <div class="brand">☀ YATINIDHI SOLAR</div>
-    <div class="sub">BY YCPL · GOVT. APPROVED VENDOR</div>
-  </div>
-  <div class="contact">
-    📍 Gomti Nagar Ext., Lucknow<br>
-    📞 7007895157
-  </div>
-</div>
+<div id="configBanner" hidden>Google Maps / Firebase isn't configured yet — open <code>index.html</code> and fill in the placeholders near the top (see README.md).</div>
 
-<!-- TABS -->
-<div class="tabs no-print">
-  <button class="tab-btn active" id="tab-form" onclick="switchTab('form')">✏ Build Quotation</button>
-  <button class="tab-btn inactive" id="tab-preview" onclick="switchTab('preview')">📄 Preview &amp; Print</button>
-</div>
-
-<!-- ==================== FORM SECTION ==================== -->
-<div class="form-wrap no-print" id="section-form">
-
-  <!-- CUSTOMER -->
-  <div class="card">
-    <div class="card-title">👤 Customer Details</div>
-    <div class="grid-2">
-      <div class="field"><label>Customer Name *</label><input id="cust-name" placeholder="Mr. / Mrs. Full Name"/></div>
-      <div class="field"><label>Mobile Number *</label><input id="cust-mobile" placeholder="10-digit mobile" maxlength="10"/></div>
-      <div class="field"><label>Email Address</label><input id="cust-email" type="email" placeholder="customer@email.com"/></div>
-      <div class="field"><label>Roof Type</label>
-        <select id="cust-roof">
-          <option>RCC Flat</option><option>Tin / Metal Sheet</option>
-          <option>Asbestos / Slope</option><option>Ground Mount</option>
-        </select>
-      </div>
-      <div class="field span-2"><label>Installation Address</label><input id="cust-address" placeholder="Full installation site address"/></div>
+<div class="app">
+  <header class="topbar">
+    <button class="rail-toggle btn-ghost btn" id="railToggle" type="button" aria-label="Filters">&#9776;</button>
+    <h1 class="brand">NCR <span>Conquest</span></h1>
+    <span class="topbar-meta" id="statsLine">loading&hellip;</span>
+    <button class="btn btn-ghost" id="monitorBtn" type="button" style="margin-left:.4rem">Victory Dashboard</button>
+    <button class="btn btn-ghost" id="downloadBtn" type="button" style="margin-left:.4rem">Download master file</button>
+    <button class="btn btn-ghost" id="importBtn" type="button" style="margin-left:.4rem" hidden>Import master data (one-time)</button>
+    <span class="topbar-meta" id="downloadStatus" style="margin-left:.3rem"></span>
+    <div class="identity">
+      <label for="flPicker">Commander</label>
+      <select id="flPicker">
+        <option value="">Choose your commander&hellip;</option>
+        <option>Gaurav Kumar</option>
+        <option>Tanisha Singh</option>
+        <option>Aashu Raj</option>
+        <option>Shivansh Anand</option>
+      </select>
+      <span class="rank-badge" id="rankBadge" hidden></span>
     </div>
-  </div>
+  </header>
 
-  <!-- EMPLOYEE -->
-  <div class="card">
-    <div class="card-title">🏢 Prepared By</div>
-    <div class="grid-3">
-      <div class="field"><label>Employee Name</label><input id="emp-name" value="Mr. Rishabh Shukla"/></div>
-      <div class="field"><label>Designation</label><input id="emp-desg" value="Sales Executive"/></div>
-      <div class="field"><label>Contact No.</label><input id="emp-contact" value="7007895157"/></div>
-    </div>
-  </div>
-
-  <!-- SYSTEM SIZE -->
-  <div class="card">
-    <div class="card-title">⚡ System Capacity</div>
-    <p style="font-size:12px;color:#666;margin-bottom:12px;">Select plant size — base price covers panels, inverter, structure, wiring, installation &amp; net metering.</p>
-    <div class="grid-6" id="size-grid"></div>
-
-    <div class="grid-2" style="margin-top:14px;">
-      <div class="field">
-        <label>Custom Rate Override (₹) <small style="text-transform:none;font-weight:400;">— leave blank to use default</small></label>
-        <input id="custom-rate" type="number" min="0" placeholder="e.g. 165000" oninput="recalc()"/>
-      </div>
-      <div class="field">
-        <label>System Type</label>
-        <select id="sys-type">
-          <option>On-Grid</option><option>Off-Grid</option><option>Hybrid</option>
-        </select>
-      </div>
-    </div>
-  </div>
-
-  <!-- COMPONENTS -->
-  <div class="card">
-    <div class="card-title">🔧 Component Brands <small style="font-family:var(--font-body);font-size:11px;font-weight:400;color:#888;">— subject to availability</small></div>
-    <div class="grid-3">
-      <div class="field"><label>Solar Panels</label>
-        <select id="comp-panel"><option>Adani Topcon (DCR)</option><option>Tata Power Solar</option><option>Waaree</option><option>Premier Energies</option></select>
-      </div>
-      <div class="field"><label>On-Grid Inverter</label>
-        <select id="comp-inv"><option>Polycab</option><option>Havells</option><option>Microtek</option><option>Luminous</option></select>
-      </div>
-      <div class="field"><label>Module Mounting Structure</label>
-        <select id="comp-struct"><option>ISI Hallmark (GI)</option><option>JSW (HDGI)</option><option>Apollo (Pre-GI)</option></select>
-      </div>
-      <div class="field"><label>Wires &amp; Cables (4mm)</label>
-        <select id="comp-wire"><option>Polycab</option><option>KEI</option><option>RR Kabel</option><option>Havells</option></select>
-      </div>
-      <div class="field"><label>ACDB / DCDB Box</label>
-        <select id="comp-acdb"><option>Polycab</option><option>Havells</option><option>Premier</option></select>
-      </div>
-    </div>
-  </div>
-
-  <!-- ADDONS -->
-  <div class="card">
-    <div class="card-title">🛠 Services &amp; Add-ons</div>
-    <p style="font-size:12px;color:#666;margin-bottom:12px;">Toggle services to include. Locked items are always part of the package.</p>
-
-    <!-- ALWAYS INCLUDED -->
-    <div class="addon-row sel locked" data-id="net_metering">
-      <div class="addon-chk">✓</div>
-      <div class="addon-lbl">Net Metering &amp; DISCOM Coordination<small>Complete support for approvals &amp; utility connection</small></div>
-      <div class="addon-price" style="color:#388e3c;">Included</div>
-    </div>
-    <div class="addon-row sel locked" data-id="subsidy_assist">
-      <div class="addon-chk">✓</div>
-      <div class="addon-lbl">Government Subsidy Processing Assistance<small>End-to-end from registration to DBT credit</small></div>
-      <div class="addon-price" style="color:#388e3c;">Included</div>
-    </div>
-
-    <!-- OPTIONAL -->
-    <div class="addon-row" data-id="amc_1yr" data-price="5000" onclick="toggleAddon(this)">
-      <div class="addon-chk"></div>
-      <div class="addon-lbl">Annual Maintenance Contract – 1 Year<small>Quarterly service visits + performance monitoring</small></div>
-      <div class="addon-price">+ ₹5,000</div>
-    </div>
-    <div class="addon-row" data-id="amc_3yr" data-price="12000" onclick="toggleAddon(this)">
-      <div class="addon-chk"></div>
-      <div class="addon-lbl">Annual Maintenance Contract – 3 Years<small>Priority support + troubleshooting &amp; repair</small></div>
-      <div class="addon-price">+ ₹12,000</div>
-    </div>
-    <div class="addon-row" data-id="amc_5yr" data-price="18000" onclick="toggleAddon(this)">
-      <div class="addon-chk"></div>
-      <div class="addon-lbl">Annual Maintenance Contract – 5 Years<small>Comprehensive long-term protection plan</small></div>
-      <div class="addon-price">+ ₹18,000</div>
-    </div>
-    <div class="addon-row" data-id="battery" data-price="25000" onclick="toggleAddon(this)">
-      <div class="addon-chk"></div>
-      <div class="addon-lbl">Battery Backup Add-On (Hybrid Conversion)<small>Exide / Luminous / Okaya — lithium tech available</small></div>
-      <div class="addon-price">+ ₹25,000</div>
-    </div>
-
-    <!-- ROOF WHITE PAINT -->
-    <div class="addon-row" data-id="roof_paint" data-price="0" onclick="toggleAddon(this)" id="paint-row">
-      <div class="addon-chk"></div>
-      <div class="addon-lbl">
-        Roof White Heat-Reflective Paint<small>@₹30/sq.ft — improves panel efficiency by reducing roof temperature</small>
-        <!-- PAINT SUB-SECTION -->
-        <div class="paint-sub" id="paint-sub" onclick="event.stopPropagation()">
-          <div class="paint-row">
-            <div class="field">
-              <label>Area Source</label>
-              <select id="paint-mode" onchange="updatePaint()">
-                <option value="auto">Auto-calculate from kW size</option>
-                <option value="manual">Manual entry (sq.ft)</option>
-              </select>
-            </div>
-            <div class="field" id="paint-manual-wrap" style="display:none;">
-              <label>Enter Area (sq.ft)</label>
-              <input type="number" id="paint-manual" min="0" placeholder="e.g. 450" oninput="updatePaint()"/>
-            </div>
-            <div class="field">
-              <label>Rate</label>
-              <input type="number" id="paint-rate" value="30" min="0" oninput="updatePaint()"/>
-            </div>
-          </div>
-          <div class="paint-info" id="paint-info"></div>
+  <div class="main">
+    <nav class="rail" id="rail">
+      <div class="rail-section">
+        <p class="rail-title">Bank</p>
+        <div class="filter-scroll">
+        <label class="filter-row"><input type="checkbox" class="f-bank" value="IDBI" checked><span class="swatch" style="background:var(--pin-green)"></span>IDBI Bank<span class="count-pill" data-count-bank="IDBI"></span></label>
+        <label class="filter-row"><input type="checkbox" class="f-bank" value="Union Bank of India" checked><span class="swatch" style="background:var(--pin-green)"></span>Union Bank of India<span class="count-pill" data-count-bank="Union Bank of India"></span></label>
+        <label class="filter-row"><input type="checkbox" class="f-bank" value="Bank of Maharashtra" checked><span class="swatch" style="background:var(--pin-green)"></span>Bank of Maharashtra<span class="count-pill" data-count-bank="Bank of Maharashtra"></span></label>
+        <label class="filter-row"><input type="checkbox" class="f-bank" value="Bank of India" checked><span class="swatch" style="background:var(--pin-black)"></span>Bank of India<span class="count-pill" data-count-bank="Bank of India"></span></label>
+        <label class="filter-row"><input type="checkbox" class="f-bank" value="Canara Bank" checked><span class="swatch" style="background:var(--pin-black)"></span>Canara Bank<span class="count-pill" data-count-bank="Canara Bank"></span></label>
+        <label class="filter-row"><input type="checkbox" class="f-bank" value="Central Bank of India" checked><span class="swatch" style="background:var(--pin-black)"></span>Central Bank of India<span class="count-pill" data-count-bank="Central Bank of India"></span></label>
+        <label class="filter-row"><input type="checkbox" class="f-bank" value="Indian Bank" checked><span class="swatch" style="background:var(--pin-black)"></span>Indian Bank<span class="count-pill" data-count-bank="Indian Bank"></span></label>
+        <label class="filter-row"><input type="checkbox" class="f-bank" value="Indian Overseas Bank" checked><span class="swatch" style="background:var(--pin-black)"></span>Indian Overseas Bank<span class="count-pill" data-count-bank="Indian Overseas Bank"></span></label>
+        <label class="filter-row"><input type="checkbox" class="f-bank" value="Punjab and Sind Bank" checked><span class="swatch" style="background:var(--pin-black)"></span>Punjab and Sind Bank<span class="count-pill" data-count-bank="Punjab and Sind Bank"></span></label>
+        <label class="filter-row"><input type="checkbox" class="f-bank" value="Punjab National Bank" checked><span class="swatch" style="background:var(--pin-black)"></span>Punjab National Bank<span class="count-pill" data-count-bank="Punjab National Bank"></span></label>
+        <label class="filter-row"><input type="checkbox" class="f-bank" value="UCO Bank" checked><span class="swatch" style="background:var(--pin-black)"></span>UCO Bank<span class="count-pill" data-count-bank="UCO Bank"></span></label>
         </div>
       </div>
-      <div class="addon-price" id="paint-price-label">Select to calculate</div>
+      <div class="rail-section">
+        <p class="rail-title">Office type</p>
+        <label class="filter-row"><input type="checkbox" class="f-kind" value="Branch" checked>Branch<span class="count-pill" data-count-kind="Branch"></span></label>
+        <label class="filter-row"><input type="checkbox" class="f-kind" value="Regional Office" checked>Regional Office<span class="count-pill" data-count-kind="Regional Office"></span></label>
+        <label class="filter-row"><input type="checkbox" class="f-kind" value="Circle Office" checked>Circle Office<span class="count-pill" data-count-kind="Circle Office"></span></label>
+      </div>
+      <div class="rail-section">
+        <p class="rail-title">City / Town (NCR)</p>
+        <p style="font-size:.68rem;color:var(--muted);margin:-.3rem 0 .45rem">Map &amp; list follow the zone tab above the map &mdash; pick a city's zone tab to see it.</p>
+        <div class="filter-scroll">
+        <label class="filter-row"><input type="checkbox" class="f-city" value="Delhi" checked>Delhi<span class="count-pill" data-count-city="Delhi"></span></label>
+        <label class="filter-row"><input type="checkbox" class="f-city" value="Gurugram" checked>Gurugram<span class="count-pill" data-count-city="Gurugram"></span></label>
+        <label class="filter-row"><input type="checkbox" class="f-city" value="Faridabad" checked>Faridabad<span class="count-pill" data-count-city="Faridabad"></span></label>
+        <label class="filter-row"><input type="checkbox" class="f-city" value="Noida" checked>Noida<span class="count-pill" data-count-city="Noida"></span></label>
+        <label class="filter-row"><input type="checkbox" class="f-city" value="Greater Noida" checked>Greater Noida<span class="count-pill" data-count-city="Greater Noida"></span></label>
+        <label class="filter-row"><input type="checkbox" class="f-city" value="Ghaziabad" checked>Ghaziabad<span class="count-pill" data-count-city="Ghaziabad"></span></label>
+        <label class="filter-row"><input type="checkbox" class="f-city" value="Lucknow" checked>Lucknow<span class="count-pill" data-count-city="Lucknow"></span></label>
+        </div>
+      </div>
+      <div class="rail-section">
+        <p class="rail-title">Coverage status</p>
+        <select id="statusFilter" style="width:100%">
+          <option value="">All locations</option>
+          <option value="__unclaimed">Unclaimed only</option>
+          <option value="Open">Status: Open</option>
+          <option value="Occupied">Status: Occupied</option>
+          <option value="Dead">Status: Dead</option>
+          <option value="__mine">Claimed by me</option>
+        </select>
+      </div>
+      <div class="rail-section">
+        <p class="rail-title">Locations (<span id="listCount">0</span>)</p>
+        <input type="text" id="search" class="searchbox" placeholder="Search name&hellip;">
+        <ul id="branchList"></ul>
+        <details class="admin-add" id="adminAdd" hidden>
+          <summary>Add a location (admin)</summary>
+          <form id="addForm">
+            <select id="addKind" required>
+              <option value="Branch">Branch</option>
+              <option value="Regional Office">Regional Office</option>
+              <option value="Circle Office">Circle Office</option>
+            </select>
+            <select id="addBank" required>
+              <option value="IDBI">IDBI Bank</option>
+              <option value="Union Bank of India">Union Bank of India</option>
+              <option value="Bank of Maharashtra">Bank of Maharashtra</option>
+              <option value="Bank of India">Bank of India</option>
+              <option value="Canara Bank">Canara Bank</option>
+              <option value="Central Bank of India">Central Bank of India</option>
+              <option value="Indian Bank">Indian Bank</option>
+              <option value="Indian Overseas Bank">Indian Overseas Bank</option>
+              <option value="Punjab and Sind Bank">Punjab and Sind Bank</option>
+              <option value="Punjab National Bank">Punjab National Bank</option>
+              <option value="UCO Bank">UCO Bank</option>
+            </select>
+            <select id="addCity" required>
+              <option value="Delhi">Delhi</option>
+              <option value="Gurugram">Gurugram</option>
+              <option value="Faridabad">Faridabad</option>
+              <option value="Noida">Noida</option>
+              <option value="Greater Noida">Greater Noida</option>
+              <option value="Ghaziabad">Ghaziabad</option>
+              <option value="Lucknow">Lucknow</option>
+            </select>
+            <input type="text" id="addName" placeholder="Name (branch / office)" required>
+            <button type="submit" class="btn btn-primary" style="width:100%">Add to map</button>
+          </form>
+        </details>
+      </div>
+    </nav>
+
+    <div class="stage">
+      <div class="zone-tabs" id="zoneTabs">
+        <button type="button" class="zone-tab active" data-zone="DN">Delhi North</button>
+        <button type="button" class="zone-tab" data-zone="DS">Delhi South</button>
+        <button type="button" class="zone-tab" data-zone="DE">Delhi East</button>
+        <button type="button" class="zone-tab" data-zone="DW">Delhi West</button>
+        <button type="button" class="zone-tab" data-zone="NG">Noida &amp; Ghaziabad</button>
+        <button type="button" class="zone-tab" data-zone="GF">Gurugram &amp; Faridabad</button>
+        <button type="button" class="zone-tab" data-zone="LKO">Lucknow</button>
+      </div>
+      <div class="trail-control">
+        <label for="trailPicker">March&nbsp;trail</label>
+        <select id="trailPicker">
+          <option value="">None</option>
+          <option>Gaurav Kumar</option>
+          <option>Tanisha Singh</option>
+          <option>Aashu Raj</option>
+          <option>Shivansh Anand</option>
+        </select>
+      </div>
+      <div id="map"></div>
+      <div class="legend" id="legend">
+        <div class="legend-row"><span class="legend-dot" style="background:var(--pin-office)"></span>Regional / Circle Office (large, blue)</div>
+        <div class="legend-row"><span class="legend-dot" style="background:var(--pin-green)"></span>Branch &mdash; IDBI / UBI / BoM</div>
+        <div class="legend-row"><span class="legend-dot" style="background:var(--pin-black)"></span>Branch &mdash; other PSU banks</div>
+        <div class="legend-row"><span class="legend-ring" style="border-color:var(--status-open)"></span>Open</div>
+        <div class="legend-row"><span class="legend-ring" style="border-color:var(--status-occupied)"></span>Occupied</div>
+        <div class="legend-row"><span class="legend-ring" style="border-color:var(--status-dead)"></span>Dead</div>
+      </div>
+      <div class="map-controls">
+        <button id="zoomIn" type="button" aria-label="Zoom in">+</button>
+        <button id="zoomOut" type="button" aria-label="Zoom out">&minus;</button>
+        <button id="zoomReset" type="button" aria-label="Fit to view" style="font-size:.7rem">fit</button>
+      </div>
     </div>
-
-    <div class="addon-row" data-id="civil_extra" data-price="0" onclick="toggleAddon(this)">
-      <div class="addon-chk"></div>
-      <div class="addon-lbl">Extra Civil / Structural Work<small>If site requires non-standard mounting — charged at actual</small></div>
-      <div class="addon-price" style="color:#888;">At Actual</div>
-    </div>
-    <div class="addon-row" data-id="extra_cable" data-price="0" onclick="toggleAddon(this)">
-      <div class="addon-chk"></div>
-      <div class="addon-lbl">Extra Cable Run (beyond combiner box)<small>If distribution distance exceeds standard — charged at actual</small></div>
-      <div class="addon-price" style="color:#888;">At Actual</div>
-    </div>
-  </div>
-
-  <!-- PRICING SUMMARY -->
-  <div class="card">
-    <div class="card-title">💰 Pricing Summary</div>
-
-    <div class="subsidy-toggle">
-      <input type="checkbox" id="show-subsidy" checked onchange="recalc()"/>
-      <label for="show-subsidy">Show Government Subsidy (PM Surya Ghar Yojana) — credit directly to customer bank account via DBT</label>
-    </div>
-
-    <div class="price-table" id="price-table"></div>
-  </div>
-
-  <!-- NOTES -->
-  <div class="card">
-    <div class="card-title">📝 Additional Notes / Remarks</div>
-    <div class="field"><textarea id="notes" rows="3" placeholder="Special conditions, site remarks, or any other information…"></textarea></div>
-  </div>
-
-  <div class="btn-row">
-    <button class="btn-secondary" onclick="resetForm()">↺ Reset</button>
-    <button class="btn-primary" onclick="generatePreview()">Generate Quotation →</button>
   </div>
 </div>
 
-<!-- ==================== PREVIEW SECTION ==================== -->
-<div class="preview-wrap" id="section-preview">
-  <div class="btn-row no-print" style="margin-bottom:16px;">
-    <button class="btn-secondary" onclick="switchTab('form')">← Edit</button>
-    <button class="btn-primary" onclick="window.print()">🖨 Print / Save PDF</button>
+<div id="sheetBackdrop"></div>
+<aside id="sheet" aria-hidden="true">
+  <div class="sheet-head">
+    <div>
+      <span class="sheet-bank-chip" id="sheetBankChip"></span>
+      <h2 class="sheet-name" id="sheetName"></h2>
+      <p class="sheet-sub" id="sheetSub"></p>
+    </div>
+    <button class="x" id="sheetClose" aria-label="Close">&times;</button>
   </div>
+  <div class="sheet-body">
+    <div class="claim-box" id="claimBox"></div>
+    <div class="field">
+      <label>Coverage status</label>
+      <div class="status-pick" id="statusPick">
+        <button type="button" data-v="Open">Open</button>
+        <button type="button" data-v="Occupied">Occupied</button>
+        <button type="button" data-v="Dead">Dead</button>
+      </div>
+      <p id="statusAdminNote" class="lock-note" style="margin-top:.3rem" hidden>Status is set automatically when a flag is planted &mdash; only an admin can change it by hand.</p>
+    </div>
+    <div class="field" style="font-size:.72rem; color:var(--muted); font-family:var(--font-mono)">
+      <span id="sheetMeta"></span>
+    </div>
+    <div class="field">
+      <label>Visit log</label>
+      <p id="lockNote" class="lock-note" hidden></p>
+      <div id="entryList" class="entry-list"></div>
+      <div id="entryFormWrap" class="visit-form">
+        <div class="field">
+          <label for="entryDate">Visit date</label>
+          <input type="date" id="entryDate">
+        </div>
+        <div id="meetingRows"></div>
+        <button type="button" class="btn btn-ghost" id="addMeetingBtn">&#43; Add another person met</button>
+        <button type="button" class="btn btn-ghost" id="geoBtn">Capture my location</button>
+        <p class="geo-status" id="geoStatus"></p>
+        <button type="button" class="btn btn-primary" id="entrySaveBtn" disabled>Log this visit</button>
+        <p class="save-note" id="entrySaveNote"></p>
+      </div>
+    </div>
+  </div>
+  <div class="sheet-foot">
+    <button class="btn btn-ghost" id="sheetCancel" style="flex:1">Close</button>
+    <button class="btn btn-primary" id="sheetSave" style="flex:2">Save update</button>
+  </div>
+  <div class="save-note" id="saveNote" style="padding:0 1rem .6rem"></div>
+</aside>
 
-  <div class="quot" id="quotation-doc"></div>
+<div id="monitorBackdrop"></div>
+<div id="monitorPanel" aria-hidden="true">
+  <div class="monitor-head">
+    <h2>&#128081; Victory Dashboard</h2>
+    <button class="x" id="monitorClose" aria-label="Close">&times;</button>
+  </div>
+  <div class="monitor-body" id="monitorBody"></div>
+</div>
 
-  <div class="btn-row no-print" style="margin-top:16px;">
-    <button class="btn-secondary" onclick="switchTab('form')">← Edit Quotation</button>
-    <button class="btn-primary" onclick="window.print()">🖨 Print / Save PDF</button>
+<div id="authBackdrop"></div>
+<div id="authPanel" aria-hidden="true">
+  <h3>Password required</h3>
+  <p class="auth-sub">Enter the shared password to continue. The same password also unlocks admin controls (status override, add-location, data import).</p>
+  <input type="password" id="authInput" placeholder="Password" autocomplete="off">
+  <p id="authError" class="auth-error" hidden></p>
+  <div style="display:flex; gap:.5rem; margin-top:.7rem">
+    <button type="button" class="btn btn-ghost" id="authCancel" style="flex:1">Cancel</button>
+    <button type="button" class="btn btn-primary" id="authSubmit" style="flex:1">Unlock</button>
   </div>
 </div>
 
-
-<!-- ==================== JAVASCRIPT ==================== -->
 <script>
-// ===== DATA =====
-const SIZES = [
-  { kw:1,  panels:'3–4',  rate:65000,  c_sub:30000, s_sub:15000 },
-  { kw:2,  panels:'4–6',  rate:115000, c_sub:60000, s_sub:30000 },
-  { kw:3,  panels:'5–6',  rate:170000, c_sub:78000, s_sub:30000 },
-  { kw:5,  panels:'8–10', rate:260000, c_sub:78000, s_sub:30000 },
-  { kw:7,  panels:'12–14',rate:350000, c_sub:78000, s_sub:30000 },
-  { kw:10, panels:'16–20',rate:480000, c_sub:78000, s_sub:30000 },
-];
-
-// sqft per kW (approx 100 sqft/kW usable roof area)
-const SQFT_PER_KW = 100;
-
-const BRAND = {
-  name:'YATINIDHI SOLAR', byline:'BY YCPL',
-  address:'1B/243 Sector-1 Gomti Nagar Extension Lucknow (U.P)-226010',
-  contact:'7007895157', email:'yatinidhisolar@gmail.com',
-  website:'www.yatinidhisolar.in', gstn:'09AABCY0047K1Z7',
-  bank:{ name:'M/s Yatinidhi Constructions Pvt. Ltd.',
-         bank:'HDFC Bank Vipul Khand Gomti Nagar, Lucknow-226010',
-         acno:'50200076296185', type:'Current', ifsc:'HDFC0004419' }
-};
-
-const WARRANTY = [
-  { item:'Solar PV Modules',        val:'25–30 Years Performance Warranty (OEM)' },
-  { item:'On-Grid Inverter',         val:'08–10 Years Manufacturer Warranty (OEM)' },
-  { item:'Workmanship / Installation',val:'01 Year by Yatinidhi Constructions Pvt. Ltd.' },
-  { item:'Service Warranty (exclusive)',val:'05 Years by Yatinidhi Solar' },
-];
-
-let selectedSize = SIZES[2]; // default 3kW
-
-// ===== INIT =====
-function init() {
-  const grid = document.getElementById('size-grid');
-  grid.innerHTML = '';
-  SIZES.forEach(s => {
-    const d = document.createElement('div');
-    d.className = 'size-card' + (s.kw === selectedSize.kw ? ' sel' : '');
-    d.innerHTML = `<div class="kw">${s.kw}<span>kW</span></div>
-      <div class="panels">${s.panels} panels</div>
-      <div class="price">₹${s.rate.toLocaleString('en-IN')}</div>`;
-    d.onclick = () => { selectedSize = s; document.querySelectorAll('.size-card').forEach(c=>c.classList.remove('sel')); d.classList.add('sel'); updatePaint(); recalc(); };
-    grid.appendChild(d);
-  });
-  recalc();
-}
-
-// ===== TOGGLE ADDON =====
-function toggleAddon(row) {
-  if (row.classList.contains('locked')) return;
-  row.classList.toggle('sel');
-  row.querySelector('.addon-chk').textContent = row.classList.contains('sel') ? '✓' : '';
-
-  // Paint sub-section visibility
-  if (row.dataset.id === 'roof_paint') {
-    const sub = document.getElementById('paint-sub');
-    if (row.classList.contains('sel')) { sub.classList.add('show'); updatePaint(); }
-    else { sub.classList.remove('show'); recalc(); }
-  }
-  recalc();
-}
-
-// ===== PAINT CALC =====
-function updatePaint() {
-  const mode   = document.getElementById('paint-mode').value;
-  const mWrap  = document.getElementById('paint-manual-wrap');
-  const info   = document.getElementById('paint-info');
-  const rate   = parseFloat(document.getElementById('paint-rate').value) || 30;
-  const row    = document.getElementById('paint-row');
-  const label  = document.getElementById('paint-price-label');
-
-  mWrap.style.display = (mode === 'manual') ? 'block' : 'none';
-
-  let sqft = 0;
-  if (mode === 'auto') {
-    sqft = selectedSize.kw * SQFT_PER_KW;
-  } else {
-    sqft = parseFloat(document.getElementById('paint-manual').value) || 0;
-  }
-
-  const cost = Math.round(sqft * rate);
-
-  if (sqft > 0) {
-    info.classList.add('show');
-    info.textContent = `${sqft.toLocaleString('en-IN')} sq.ft × ₹${rate}/sq.ft = ₹${cost.toLocaleString('en-IN')}`;
-    label.textContent = cost > 0 ? `+ ₹${cost.toLocaleString('en-IN')}` : 'Enter area';
-    row.dataset.price = cost;
-  } else {
-    info.classList.remove('show');
-    label.textContent = 'Enter area';
-    row.dataset.price = 0;
-  }
-
-  if (row.classList.contains('sel')) recalc();
-}
-
-// ===== RECALC =====
-function recalc() {
-  const customRate = parseFloat(document.getElementById('custom-rate').value);
-  const base = (!isNaN(customRate) && customRate > 0) ? customRate : selectedSize.rate;
-
-  // sum selected addon prices (skip locked/at-actual)
-  let addonTotal = 0;
-  const addonRows = document.querySelectorAll('.addon-row:not(.locked)');
-  addonRows.forEach(r => {
-    if (r.classList.contains('sel')) {
-      const p = parseFloat(r.dataset.price) || 0;
-      addonTotal += p;
-    }
-  });
-
-  const gross = base + addonTotal;
-  const showSub = document.getElementById('show-subsidy').checked;
-  const cSub = showSub ? selectedSize.c_sub : 0;
-  const sSub = showSub ? selectedSize.s_sub : 0;
-  const totalSub = cSub + sSub;
-  const net = gross - totalSub;
-
-  const rows = [
-    { label:'System Base Price', val:`₹${base.toLocaleString('en-IN')}`, cls:'alt' },
-    { label:'Add-on Services', val: addonTotal > 0 ? `+ ₹${addonTotal.toLocaleString('en-IN')}` : '—', cls:'' },
-    { label:'GROSS TOTAL', val:`₹${gross.toLocaleString('en-IN')}`, cls:'total' },
+(function(){
+  "use strict";
+  var BANKS = [
+    {id:"IDBI", code:"IDBI"},
+    {id:"Union Bank of India", code:"UBI"},
+    {id:"Bank of Maharashtra", code:"BOM"},
+    {id:"Bank of India", code:"BOI"},
+    {id:"Canara Bank", code:"CNB"},
+    {id:"Central Bank of India", code:"CBI"},
+    {id:"Indian Bank", code:"INB"},
+    {id:"Indian Overseas Bank", code:"IOB"},
+    {id:"Punjab and Sind Bank", code:"PSB"},
+    {id:"Punjab National Bank", code:"PNB"},
+    {id:"UCO Bank", code:"UCO"}
   ];
-  if (showSub) {
-    rows.push({ label:`Central Subsidy – CFA (PM Surya Ghar)`, val:`− ₹${cSub.toLocaleString('en-IN')}`, cls:'sub-row' });
-    rows.push({ label:`State Subsidy – Uttar Pradesh`,         val:`− ₹${sSub.toLocaleString('en-IN')}`, cls:'sub-row' });
-    rows.push({ label:`NET COST TO CUSTOMER (After Subsidy)`,  val:`₹${net.toLocaleString('en-IN')}`,   cls:'net' });
+  var BANK_SHORT = {};
+  BANKS.forEach(function(bk){ BANK_SHORT[bk.id] = bk.code; });
+  var BANK_FULL = {};
+  BANKS.forEach(function(bk){ BANK_FULL[bk.id] = bk.id === "IDBI" ? "IDBI Bank" : bk.id; });
+
+  // literal (non-CSS-variable) colors, needed because marker icons are
+  // rendered as standalone data-URI SVGs outside the page's DOM, where
+  // var(--x) can't be resolved.
+  var PIN_GREEN = "#1f9e46", PIN_BLACK = "#15181d", PIN_OFFICE = "#2563c9";
+  var STATUS_LITERAL = { "Open": "#1D7A4C", "Occupied": "#8A6B16", "Dead": "#A8314B" };
+  var SURFACE_LITERAL = "#FBF3DE", INK_LITERAL = "#2E210E";
+  var GREEN_BANKS = ["IDBI", "Union Bank of India", "Bank of Maharashtra"];
+  function bankToneLiteral(bankId){ return GREEN_BANKS.indexOf(bankId) !== -1 ? PIN_GREEN : PIN_BLACK; }
+  function pinColorLiteral(b){
+    var kind = b.kind || "Branch";
+    return kind === "Branch" ? bankToneLiteral(b.bank) : PIN_OFFICE;
+  }
+  // CSS-variable version, still used for non-marker UI (chips, legend, etc).
+  var GREEN_BANKS2 = GREEN_BANKS;
+  function bankTone(bankId){ return GREEN_BANKS2.indexOf(bankId) !== -1 ? "var(--pin-green)" : "var(--pin-black)"; }
+  function pinColor(b){ var kind = b.kind || "Branch"; return kind === "Branch" ? bankTone(b.bank) : "var(--pin-office)"; }
+
+  var CITY_ALIAS = { "Gurgaon": "Gurugram" };
+  function normCity(city){ return CITY_ALIAS[city] || city; }
+  var CITY_CENTROID = {
+    "Delhi": [28.6139, 77.2090], "Gurugram": [28.4595, 77.0266], "Faridabad": [28.4089, 77.3178],
+    "Noida": [28.5355, 77.3910], "Greater Noida": [28.4744, 77.5040], "Ghaziabad": [28.6692, 77.4538],
+    "Lucknow": [26.8467, 80.9462]
+  };
+
+  var DELHI_CENTER = { lat: 28.6139, lon: 77.2090 };
+  var NG_CITIES = { "Noida": true, "Greater Noida": true, "Ghaziabad": true };
+  var GF_CITIES = { "Gurugram": true, "Faridabad": true };
+  var LKO_CITIES = { "Lucknow": true };
+  function zoneOf(b){
+    var city = normCity(b.city);
+    if (city === "Delhi") {
+      var dLat = b.lat - DELHI_CENTER.lat, dLon = b.lon - DELHI_CENTER.lon;
+      if (Math.abs(dLat) >= Math.abs(dLon)) return dLat >= 0 ? "DN" : "DS";
+      return dLon >= 0 ? "DE" : "DW";
+    }
+    if (NG_CITIES[city]) return "NG";
+    if (GF_CITIES[city]) return "GF";
+    if (LKO_CITIES[city]) return "LKO";
+    return null;
+  }
+  var currentZone = "DN";
+
+  // approximate initial centers per zone tab -- just for first paint;
+  // the "fit" button recenters precisely from real pin positions once
+  // the branch list has loaded.
+  var ZONE_CENTER = {
+    DN: {lat: 28.69, lng: 77.21, zoom: 12},
+    DS: {lat: 28.53, lng: 77.21, zoom: 12},
+    DE: {lat: 28.61, lng: 77.29, zoom: 12},
+    DW: {lat: 28.61, lng: 77.13, zoom: 12},
+    NG: {lat: 28.56, lng: 77.45, zoom: 11},
+    GF: {lat: 28.43, lng: 77.17, zoom: 11},
+    LKO:{lat: 26.85, lng: 80.94, zoom: 13}
+  };
+
+  var KIND_CONF = {
+    "Branch": {size:15, halo:11},
+    "Regional Office": {size:24, halo:16},
+    "Circle Office": {size:30, halo:20}
+  };
+  var STATUS_COLOR = { "Open": "var(--status-open)", "Occupied": "var(--status-occupied)", "Dead": "var(--status-dead)", "": "var(--status-none)" };
+  function kindZ(kind){ return kind === "Circle Office" ? 3 : (kind === "Regional Office" ? 2 : 1); }
+
+  var branches = [];     // {id, bank, city, name, kind, lat, lon, approx}
+  var claims = {};        // id -> {claimedBy, status, updatedAt, updatedBy}
+  var entries = [];       // [{id, branchId, fl, metWith, contact, amountShifted, amount, remark, date, geo, distanceKm, mismatch, createdAt, createdBy}]
+  var selectedId = null;
+  var db = null;
+  var canAdmin = false;   // granted by the shared password gate (see submitAuth) -- no separate admin login on a standalone site
+
+  var FL_NAMES = ["Gaurav Kumar", "Tanisha Singh", "Aashu Raj", "Shivansh Anand"];
+  function canActOn(c){
+    if (canAdmin) return true;
+    if (!flPicker.value) return false;
+    if (!c || !c.claimedBy) return false;
+    return c.claimedBy === flPicker.value;
+  }
+  function canEditStatus(){ return canAdmin; }
+
+  var FL_COLORS = {
+    "Gaurav Kumar": "#C2410C",
+    "Tanisha Singh": "#7A3FA0",
+    "Aashu Raj": "#0F766E",
+    "Shivansh Anand": "#BE185D"
+  };
+  var POINTS = {
+    claimBranch: 10, claimRegional: 25, claimCircle: 40,
+    visitClean: 25, visitMismatch: 5, perThousandConverted: 1
+  };
+  var RANKS = [
+    [0, "Recruit"], [100, "Scout"], [300, "Ranger"], [700, "Knight"],
+    [1500, "Commander"], [3000, "General"], [6000, "Warlord"], [10000, "Conqueror of NCR"]
+  ];
+  function rankFor(points){
+    var title = RANKS[0][1];
+    for (var i = 0; i < RANKS.length; i++) { if (points >= RANKS[i][0]) title = RANKS[i][1]; }
+    return title;
+  }
+  function pointsForClaim(kind){
+    if (kind === "Circle Office") return POINTS.claimCircle;
+    if (kind === "Regional Office") return POINTS.claimRegional;
+    return POINTS.claimBranch;
+  }
+  var ZONE_ORDER = ["DN", "DS", "DE", "DW", "NG", "GF", "LKO"];
+  var ZONE_LABELS = { DN:"Delhi North", DS:"Delhi South", DE:"Delhi East", DW:"Delhi West", NG:"Noida & Ghaziabad", GF:"Gurugram & Faridabad", LKO:"Lucknow" };
+  function computeFlScore(fl){
+    var pts = 0;
+    Object.keys(claims).forEach(function(id){
+      var c = claims[id];
+      if (c.claimedBy !== fl) return;
+      var b = branches.find(function(x){ return x.id === id; });
+      if (b) pts += pointsForClaim(b.kind);
+    });
+    entries.forEach(function(e){
+      if (e.fl !== fl) return;
+      pts += e.mismatch ? POINTS.visitMismatch : POINTS.visitClean;
+      pts += Math.floor((Number(e.amount) || 0) / 1000) * POINTS.perThousandConverted;
+    });
+    return pts;
+  }
+  function conquestStats(){
+    var total = branches.length;
+    var claimed = 0, byZone = {};
+    branches.forEach(function(b){
+      var z = zoneOf(b);
+      if (!z) return;
+      byZone[z] = byZone[z] || { total: 0, claimed: 0 };
+      byZone[z].total++;
+      if (claims[b.id] && claims[b.id].claimedBy) { byZone[z].claimed++; claimed++; }
+    });
+    return { total: total, claimed: claimed, byZone: byZone };
+  }
+  function updateRankBadge(){
+    var el = document.getElementById("rankBadge");
+    if (!el) return;
+    if (!flPicker.value) { el.hidden = true; return; }
+    var pts = computeFlScore(flPicker.value);
+    el.hidden = false;
+    el.textContent = rankFor(pts) + " · " + pts + " pts";
   }
 
-  const tbl = document.getElementById('price-table');
-  tbl.innerHTML = rows.map(r =>
-    `<div class="price-row ${r.cls}"><span>${r.label}</span><span>${r.val}</span></div>`
-  ).join('');
-}
-
-// ===== TAB SWITCH =====
-function switchTab(t) {
-  document.getElementById('tab-form').className    = 'tab-btn ' + (t==='form'    ? 'active' : 'inactive');
-  document.getElementById('tab-preview').className = 'tab-btn ' + (t==='preview' ? 'active' : 'inactive');
-  document.getElementById('section-form').style.display    = t==='form'    ? 'block' : 'none';
-  document.getElementById('section-preview').style.display = t==='preview' ? 'block' : 'none';
-  if (t === 'preview') buildPreview();
-}
-
-// ===== GENERATE PREVIEW =====
-function generatePreview() {
-  buildPreview();
-  switchTab('preview');
-}
-
-function fmtINR(n) {
-  return '₹' + Math.round(n).toLocaleString('en-IN');
-}
-
-function todayStr() {
-  return new Date().toLocaleDateString('en-IN', { day:'2-digit', month:'2-digit', year:'numeric' });
-}
-function validStr() {
-  const d = new Date(); d.setDate(d.getDate()+7);
-  return d.toLocaleDateString('en-IN', { day:'2-digit', month:'2-digit', year:'numeric' });
-}
-
-function buildPreview() {
-  // Collect values
-  const cName    = document.getElementById('cust-name').value    || '—';
-  const cMobile  = document.getElementById('cust-mobile').value  || '—';
-  const cEmail   = document.getElementById('cust-email').value;
-  const cAddr    = document.getElementById('cust-address').value || '—';
-  const cRoof    = document.getElementById('cust-roof').value;
-  const eName    = document.getElementById('emp-name').value;
-  const eDesg    = document.getElementById('emp-desg').value;
-  const eContact = document.getElementById('emp-contact').value;
-  const sysType  = document.getElementById('sys-type').value;
-  const notes    = document.getElementById('notes').value;
-  const compPanel  = document.getElementById('comp-panel').value;
-  const compInv    = document.getElementById('comp-inv').value;
-  const compStruct = document.getElementById('comp-struct').value;
-  const compWire   = document.getElementById('comp-wire').value;
-  const compAcdb   = document.getElementById('comp-acdb').value;
-
-  const customRate = parseFloat(document.getElementById('custom-rate').value);
-  const base = (!isNaN(customRate) && customRate > 0) ? customRate : selectedSize.rate;
-
-  // Addons
-  let addonTotal = 0;
-  const addonRows = document.querySelectorAll('.addon-row:not(.locked)');
-  const addonLines = [];
-  addonRows.forEach(r => {
-    if (!r.classList.contains('sel')) return;
-    const id = r.dataset.id;
-    const price = parseFloat(r.dataset.price) || 0;
-    addonTotal += price;
-    const lbl = r.querySelector('.addon-lbl').firstChild.textContent.trim();
-    const priceStr = price > 0 ? fmtINR(price) : 'At Actual';
-    addonLines.push({ id, lbl, priceStr, price });
-  });
-
-  const gross = base + addonTotal;
-  const showSub = document.getElementById('show-subsidy').checked;
-  const cSub = showSub ? selectedSize.c_sub : 0;
-  const sSub = showSub ? selectedSize.s_sub : 0;
-  const net  = gross - cSub - sSub;
-
-  // ===== BUILD HTML =====
-  let bomRows = `
-    <tr><td>1</td><td><b>Solar Panels</b><br><small>DCR / TOPCon Technology, ${selectedSize.panels} Nos</small></td><td>${compPanel}</td><td>${selectedSize.panels} Nos</td><td>—</td></tr>
-    <tr><td>2</td><td><b>${sysType} Inverter with MPPT &amp; RMS</b><br><small>String Type, 1Ph, ${selectedSize.kw}kW</small></td><td>${compInv}</td><td>1 No</td><td>—</td></tr>
-    <tr><td>3</td><td><b>Module Mounting Structure</b><br><small>Rafter &amp; Leg + Purlin, 610mm GC</small></td><td>${compStruct}</td><td>As Reqd</td><td>—</td></tr>
-    <tr><td>4</td><td><b>ACDB Box (With SPD)</b></td><td>${compAcdb}</td><td>1 No</td><td>—</td></tr>
-    <tr><td>5</td><td><b>DCDB Box (With SPD)</b></td><td>${compAcdb}</td><td>1 No</td><td>—</td></tr>
-    <tr><td>6</td><td><b>Wires &amp; Cables (4mm DC &amp; AC)</b><br><small>Fire Retardent, Highly Durable</small></td><td>${compWire}</td><td>As Reqd</td><td>—</td></tr>
-    <tr><td>7</td><td><b>Lightning Arrestor / Earthing</b><br><small>Copper Bonded, Triple Earthing Setup</small></td><td>Reputed Make</td><td>1 Set</td><td>—</td></tr>
-    <tr><td>8</td><td><b>Hilti Chemical Anchor</b><br><small>High-strength bonding for secure structure anchoring</small></td><td>Hilti</td><td>As Reqd</td><td>—</td></tr>
-    <tr><td>9</td><td><b>Net Meter</b></td><td>DISCOM Approved</td><td>1 No</td><td>Included</td></tr>
-    <tr><td>10</td><td><b>Installation, Civil Work &amp; Commissioning</b></td><td>Yatinidhi Solar</td><td>—</td><td>Included</td></tr>`;
-
-  let sNo = 11;
-  addonLines.forEach(a => {
-    bomRows += `<tr><td>${sNo++}</td><td><b>${a.lbl}</b></td><td>Yatinidhi Solar</td><td>—</td><td>${a.priceStr}</td></tr>`;
-  });
-
-  bomRows += `
-    <tr class="row-total"><td colspan="4"><b>TOTAL (Before Subsidy)</b></td><td>${fmtINR(gross)}</td></tr>
-    <tr class="row-grand"><td colspan="4"><b>GRAND TOTAL</b><br><small style="font-weight:400;">${numWords(gross)} only</small></td><td>${fmtINR(gross)}</td></tr>`;
-
-  if (showSub) {
-    bomRows += `
-      <tr class="row-subsidy"><td colspan="4">(−) Central Subsidy – CFA (PM Surya Ghar Yojana)</td><td>− ${fmtINR(cSub)}</td></tr>
-      <tr class="row-subsidy"><td colspan="4">(−) State Subsidy – Uttar Pradesh</td><td>− ${fmtINR(sSub)}</td></tr>
-      <tr class="row-net"><td colspan="4"><b>NET COST TO CUSTOMER (After Subsidy)</b><br><small>${numWords(net)} only</small></td><td><b>${fmtINR(net)}</b></td></tr>`;
+  var MISMATCH_KM = 2;
+  function haversineKm(lat1, lon1, lat2, lon2){
+    var R = 6371;
+    var dLat = (lat2 - lat1) * Math.PI / 180;
+    var dLon = (lon2 - lon1) * Math.PI / 180;
+    var a = Math.sin(dLat/2)*Math.sin(dLat/2) +
+            Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*
+            Math.sin(dLon/2)*Math.sin(dLon/2);
+    var c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    return R * c;
+  }
+  function inr(n){
+    try { return "₹" + Number(n || 0).toLocaleString("en-IN"); }
+    catch (e) { return "₹" + (n || 0); }
   }
 
-  const subsidyTableHTML = showSub ? `
-    <div class="q-section">
-      <div class="q-title">Government Subsidy — PM Surya Ghar Yojana</div>
-      <table class="bom-table">
-        <thead><tr><th>S.No</th><th>Subsidy Type</th><th>Rate</th><th>For ${selectedSize.kw}kW Plant</th></tr></thead>
-        <tbody>
-          <tr><td>1</td><td>Central Financial Assistance (CFA)</td><td>₹30,000/kW (1–2kW) / ₹78,000 (3–10kW)</td><td>${fmtINR(cSub)}</td></tr>
-          <tr><td>2</td><td>State Subsidy – Uttar Pradesh</td><td>₹15,000/kW (Max ₹30,000)</td><td>${fmtINR(sSub)}</td></tr>
-          <tr class="row-net"><td colspan="3"><b>Grand Total Subsidy</b></td><td><b>${fmtINR(cSub+sSub)}</b></td></tr>
-        </tbody>
-      </table>
-      <p style="font-size:11px;color:#888;margin-top:6px;">* Subsidy credited directly to customer account via DBT, subject to compliance.</p>
-    </div>` : '';
+  var branchListEl = document.getElementById("branchList");
+  var statsLine = document.getElementById("statsLine");
+  var map = null;
+  var markersMap = {};      // branch id -> google.maps.Marker
+  var trailPolyline = null, trailMarkers = [];
 
-  // Paint detail note
-  const paintLine = addonLines.find(a => a.id === 'roof_paint');
-  let paintNote = '';
-  if (paintLine) {
-    const sqft = document.getElementById('paint-mode').value === 'auto'
-      ? selectedSize.kw * 100
-      : parseFloat(document.getElementById('paint-manual').value) || 0;
-    const rate = parseFloat(document.getElementById('paint-rate').value) || 30;
-    paintNote = `<div class="note-box">🎨 <b>Roof White Heat-Reflective Paint:</b> ${sqft.toLocaleString('en-IN')} sq.ft × ₹${rate}/sq.ft = ${fmtINR(sqft * rate)} (basis: ${sqft} sq.ft for ${selectedSize.kw}kW plant)</div>`;
+  // ---------- persistence of "who am I" (per-viewer convenience only) ----------
+  var flPicker = document.getElementById("flPicker");
+  try {
+    var savedFl = localStorage.getItem("ncrbm_fl");
+    if (savedFl) flPicker.value = savedFl;
+  } catch (e) {}
+  flPicker.addEventListener("change", function(){
+    try { localStorage.setItem("ncrbm_fl", flPicker.value); } catch (e) {}
+    if (selectedId) openSheet(selectedId);
+    rerenderAll();
+  });
+
+  // ---------- marker icon (halo + bank/office glyph + claimant flag) ----------
+  function bankGlyphMarkup(core, cutout, strokeColor, strokeW){
+    return (
+      '<path d="M12 0 L23 7 L1 7 Z" fill="'+core+'" stroke="'+strokeColor+'" stroke-width="'+strokeW+'"/>' +
+      '<rect x="0" y="7" width="24" height="13" fill="'+core+'" stroke="'+strokeColor+'" stroke-width="'+strokeW+'"/>' +
+      '<rect x="4.2" y="8.3" width="2" height="1.6" fill="'+cutout+'"/>' +
+      '<rect x="11" y="8.3" width="2" height="1.6" fill="'+cutout+'"/>' +
+      '<rect x="17.8" y="8.3" width="2" height="1.6" fill="'+cutout+'"/>' +
+      '<rect x="2.3" y="12" width="2" height="2" fill="'+cutout+'"/>' +
+      '<rect x="5.3" y="12" width="2" height="2" fill="'+cutout+'"/>' +
+      '<rect x="2.3" y="15" width="2" height="2" fill="'+cutout+'"/>' +
+      '<rect x="5.3" y="15" width="2" height="2" fill="'+cutout+'"/>' +
+      '<rect x="16.7" y="12" width="2" height="2" fill="'+cutout+'"/>' +
+      '<rect x="19.7" y="12" width="2" height="2" fill="'+cutout+'"/>' +
+      '<rect x="16.7" y="15" width="2" height="2" fill="'+cutout+'"/>' +
+      '<rect x="19.7" y="15" width="2" height="2" fill="'+cutout+'"/>' +
+      '<path d="M10 20 L10 14.5 Q10 12 12 12 Q14 12 14 14.5 L14 20 Z" fill="'+cutout+'"/>'
+    );
+  }
+  function flagGlyphMarkup(fill){
+    return '<rect x="0.4" y="0" width="1" height="10" fill="'+fill+'" stroke="'+SURFACE_LITERAL+'" stroke-width="0.4"/>' +
+      '<path d="M1.4 0.4 L9.2 2.6 L1.4 4.9 Z" fill="'+fill+'" stroke="'+SURFACE_LITERAL+'" stroke-width="0.4"/>';
+  }
+  var markerIconCache = {};
+  function markerIcon(b, c, selected){
+    var kind = b.kind || "Branch";
+    var kc = KIND_CONF[kind] || KIND_CONF["Branch"];
+    var s = kc.size, halo = kc.halo;
+    var core = pinColorLiteral(b);
+    var ring = c.status ? STATUS_LITERAL[c.status] : null;
+    var flagColor = c.claimedBy ? (FL_COLORS[c.claimedBy] || "#9C6B1F") : null;
+    var strokeColor = selected ? INK_LITERAL : SURFACE_LITERAL;
+    var strokeW = selected ? 1.8 : (kind === "Branch" ? 0.6 : 1.1);
+    var cacheKey = [kind, core, ring, flagColor, selected].join("|");
+    var built = markerIconCache[cacheKey];
+    if (!built) {
+      var fsize = s * 0.65;
+      var fx = s * 0.1, fy = -s * 0.95;
+      var R = Math.ceil(Math.max(halo, s * 0.75) + fsize + 6);
+      var cx = R, cy = R;
+      var k = s / 24;
+      var parts = [];
+      parts.push('<svg xmlns="http://www.w3.org/2000/svg" width="'+(2*R)+'" height="'+(2*R)+'" viewBox="0 0 '+(2*R)+' '+(2*R)+'">');
+      if (ring) parts.push('<circle cx="'+cx+'" cy="'+cy+'" r="'+halo+'" fill="none" stroke="'+ring+'" stroke-width="2.5"/>');
+      parts.push('<g transform="translate('+(cx-12*k)+','+(cy-11*k)+') scale('+k+')">'+bankGlyphMarkup(core, SURFACE_LITERAL, strokeColor, strokeW/k)+'</g>');
+      if (flagColor) {
+        var k2 = fsize / 10;
+        parts.push('<g transform="translate('+(cx+fx)+','+(cy+fy)+') scale('+k2+')">'+flagGlyphMarkup(flagColor)+'</g>');
+      }
+      parts.push('</svg>');
+      built = { svg: parts.join(""), R: R };
+      markerIconCache[cacheKey] = built;
+    }
+    var url = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(built.svg);
+    return { url: url, scaledSize: new google.maps.Size(2*built.R, 2*built.R), anchor: new google.maps.Point(built.R, built.R) };
   }
 
-  const notesHTML = notes ? `<div class="note-box">📝 <b>Remarks:</b> ${notes}</div>` : '';
+  // ---------- filtering ----------
+  function activeFilters(){
+    var banks = Array.prototype.slice.call(document.querySelectorAll(".f-bank:checked")).map(function(c){return c.value;});
+    var cities = Array.prototype.slice.call(document.querySelectorAll(".f-city:checked")).map(function(c){return c.value;});
+    var kinds = Array.prototype.slice.call(document.querySelectorAll(".f-kind:checked")).map(function(c){return c.value;});
+    var status = document.getElementById("statusFilter").value;
+    var q = document.getElementById("search").value.trim().toLowerCase();
+    return {banks:banks, cities:cities, kinds:kinds, status:status, q:q};
+  }
+  function passesFilter(b, f){
+    if (zoneOf(b) !== currentZone) return false;
+    if (f.banks.indexOf(b.bank) === -1) return false;
+    if (f.cities.indexOf(normCity(b.city)) === -1) return false;
+    if (f.kinds.indexOf(b.kind || "Branch") === -1) return false;
+    if (f.q && b.name.toLowerCase().indexOf(f.q) === -1) return false;
+    var c = claims[b.id];
+    if (f.status === "__unclaimed") { if (c && c.claimedBy) return false; }
+    else if (f.status === "__mine") {
+      var me = flPicker.value;
+      if (!me || !c || c.claimedBy !== me) return false;
+    } else if (f.status === "Open" || f.status === "Occupied" || f.status === "Dead") {
+      if (!c || c.status !== f.status) return false;
+    }
+    return true;
+  }
 
-  const html = `
-    <div class="quot-header">
-      <div style="display:flex;justify-content:space-between;align-items:flex-start;">
-        <div>
-          <div class="quot-brand">☀ ${BRAND.name}</div>
-          <div class="quot-byline">${BRAND.byline} · YATINIDHI CONSTRUCTIONS PVT. LTD.</div>
-          <div class="quot-addr">📍 ${BRAND.address}</div>
-          <div class="quot-addr">📞 ${BRAND.contact} &nbsp;|&nbsp; ✉ ${BRAND.email}</div>
-        </div>
-        <div style="text-align:right;">
-          <span class="govt-badge">Govt. Authorised Vendor</span>
-          <div style="color:#f9a825;font-size:11px;margin-top:8px;">UPNEDA · MNRE Approved</div>
-          <div style="color:#c8e6c9;font-size:11px;margin-top:4px;">GSTN: ${BRAND.gstn}</div>
-        </div>
-      </div>
-    </div>
-    <div class="quot-gold-bar">
-      <span>📄 SOLAR POWER PLANT QUOTATION</span>
-      <span>Date: ${todayStr()} &nbsp;|&nbsp; Valid Till: ${validStr()}</span>
-    </div>
-    <div class="quot-body">
+  function renderCounts(){
+    BANKS.forEach(function(bk){
+      var n = branches.filter(function(b){return b.bank===bk.id;}).length;
+      var el = document.querySelector('[data-count-bank="'+bk.id+'"]');
+      if (el) el.textContent = n;
+    });
+    ["Delhi","Gurugram","Faridabad","Noida","Greater Noida","Ghaziabad","Lucknow"].forEach(function(ct){
+      var n = branches.filter(function(b){return normCity(b.city)===ct;}).length;
+      var el = document.querySelector('[data-count-city="'+ct+'"]');
+      if (el) el.textContent = n;
+    });
+    ["Branch","Regional Office","Circle Office"].forEach(function(k){
+      var n = branches.filter(function(b){return (b.kind||"Branch")===k;}).length;
+      var el = document.querySelector('[data-count-kind="'+k+'"]');
+      if (el) el.textContent = n;
+    });
+    var claimedCount = Object.keys(claims).filter(function(k){return claims[k].claimedBy;}).length;
+    statsLine.textContent = branches.length + " locations · " + claimedCount + " claimed · " + entries.length + " visits logged";
+  }
 
-      <!-- CUSTOMER + PROPOSAL -->
-      <div class="q-section">
-        <div class="info-grid">
-          <div style="background:#f1f8f1;border-radius:10px;padding:14px 16px;">
-            <div class="q-title" style="margin-bottom:10px;">Customer Details</div>
-            <div class="info-cell" style="margin-bottom:8px;"><label>Name</label><p>${cName}</p></div>
-            <div class="info-cell" style="margin-bottom:8px;"><label>Mobile</label><p>${cMobile}</p></div>
-            ${cEmail ? `<div class="info-cell" style="margin-bottom:8px;"><label>Email</label><p>${cEmail}</p></div>` : ''}
-            <div class="info-cell" style="margin-bottom:8px;"><label>Installation Address</label><p>${cAddr}</p></div>
-            <div class="info-cell"><label>Roof Type</label><p>${cRoof}</p></div>
-          </div>
-          <div style="background:#f1f8f1;border-radius:10px;padding:14px 16px;">
-            <div class="q-title" style="margin-bottom:10px;">Proposal Details</div>
-            <div class="info-cell" style="margin-bottom:8px;"><label>System Type</label><p>${sysType} Solar Power Plant</p></div>
-            <div class="info-cell" style="margin-bottom:8px;"><label>Capacity</label><p>${selectedSize.kw} kW Residential</p></div>
-            <div class="info-cell" style="margin-bottom:8px;"><label>Prepared By</label><p>${eName} (${eDesg})</p></div>
-            <div class="info-cell" style="margin-bottom:8px;"><label>Contact</label><p>${eContact}</p></div>
-            <div class="info-cell"><label>Validity</label><p>7 Days (till ${validStr()})</p></div>
-          </div>
-        </div>
-      </div>
+  // ---------- map rendering (Google Maps markers) ----------
+  function renderMap(){
+    if (!map) return;
+    var f = activeFilters();
+    var visibleIds = {};
+    branches.forEach(function(b){
+      if (!passesFilter(b, f)) { return; }
+      visibleIds[b.id] = true;
+      var c = claims[b.id] || {};
+      var icon = markerIcon(b, c, b.id === selectedId);
+      var mk = markersMap[b.id];
+      if (!mk) {
+        mk = new google.maps.Marker({
+          position: {lat: b.lat, lng: b.lon}, map: map, icon: icon,
+          zIndex: b.id === selectedId ? 999 : kindZ(b.kind), optimized: false
+        });
+        mk.addListener("click", function(){ openSheet(b.id); });
+        markersMap[b.id] = mk;
+      } else {
+        mk.setIcon(icon);
+        mk.setZIndex(b.id === selectedId ? 999 : kindZ(b.kind));
+        mk.setMap(map);
+      }
+    });
+    Object.keys(markersMap).forEach(function(id){
+      if (!visibleIds[id]) markersMap[id].setMap(null);
+    });
+    drawTrail();
+  }
 
-      <!-- BOM TABLE -->
-      <div class="q-section">
-        <div class="q-title">Rooftop ${sysType} Solar Power Generation System (with Net Metering)</div>
-        <table class="bom-table">
-          <thead>
-            <tr><th style="width:36px;">S.No</th><th>Item Description</th><th>Make / Brand</th><th>Qty</th><th>Amount (₹)</th></tr>
-          </thead>
-          <tbody>${bomRows}</tbody>
-        </table>
-        <p style="font-size:11px;color:#888;margin-top:6px;">* Price includes design, engineering, supply, packing, transport, erection, testing &amp; commissioning.</p>
-      </div>
+  function clearTrail(){
+    if (trailPolyline) { trailPolyline.setMap(null); trailPolyline = null; }
+    trailMarkers.forEach(function(m){ m.setMap(null); });
+    trailMarkers = [];
+  }
+  function drawTrail(){
+    clearTrail();
+    if (!map) return;
+    var trailFl = document.getElementById("trailPicker") ? document.getElementById("trailPicker").value : "";
+    if (!trailFl) return;
+    var mine = branches.filter(function(b){
+      return zoneOf(b) === currentZone && claims[b.id] && claims[b.id].claimedBy === trailFl;
+    });
+    mine.sort(function(a,b){
+      var ca = (claims[a.id] && claims[a.id].updatedAt) || "";
+      var cb = (claims[b.id] && claims[b.id].updatedAt) || "";
+      return ca.localeCompare(cb);
+    });
+    if (!mine.length) return;
+    var color = FL_COLORS[trailFl] || "#9C6B1F";
+    var path = mine.map(function(b){ return {lat: b.lat, lng: b.lon}; });
+    trailPolyline = new google.maps.Polyline({
+      path: path, map: map, strokeOpacity: 0, zIndex: 50,
+      icons: [{ icon: { path: "M 0,-1 0,1", strokeOpacity: 1, strokeColor: color, scale: 3 }, offset: "0", repeat: "12px" }]
+    });
+    mine.forEach(function(b){
+      trailMarkers.push(new google.maps.Marker({
+        position: {lat: b.lat, lng: b.lon}, map: map, clickable: false, zIndex: 60,
+        icon: { path: google.maps.SymbolPath.CIRCLE, scale: 4, fillColor: color, fillOpacity: 0.9, strokeColor: SURFACE_LITERAL, strokeWeight: 1 }
+      }));
+    });
+  }
 
-      <!-- NOTES -->
-      <div class="q-section">
-        <div class="note-box">⚡ <b>GST:</b> Applicable @ 12% on solar material (70% of cost) + 18% on installation services (30% of cost), as per prevailing guidelines at time of billing.</div>
-        <div class="note-box">🏠 <b>Structure:</b> Cost based on RCC flat roof with standard structure (610mm ground clearance). Additional structure, if required, charged at actual.</div>
-        <div class="note-box">💳 <b>Finance:</b> 100% bank finance available. Interest rates as low as 5–7%. Contact our team for details.</div>
-        ${paintNote}
-        ${notesHTML}
-      </div>
+  function renderList(){
+    var f = activeFilters();
+    var visible = branches.filter(function(b){ return passesFilter(b, f); });
+    visible.sort(function(a,b){ return a.name.localeCompare(b.name); });
+    document.getElementById("listCount").textContent = visible.length;
+    branchListEl.innerHTML = visible.map(function(b){
+      var c = claims[b.id] || {};
+      var statusHtml = c.status
+        ? '<span class="b-status" style="background:'+STATUS_COLOR[c.status]+'">'+c.status+'</span>'
+        : (c.claimedBy ? '<span class="b-status" style="background:var(--status-none)">claimed</span>' : '');
+      return '<li data-id="'+b.id+'" class="'+(b.id===selectedId?'active':'')+'">'+
+        '<span class="b-icon" style="width:10px;height:10px;border-radius:50%;display:inline-block;background:'+pinColor(b)+'"></span>'+
+        '<span class="b-name">'+escapeHtml(b.name)+'</span>'+statusHtml+'</li>';
+    }).join("") || '<li style="cursor:default;color:var(--muted)">No locations match these filters.</li>';
+    Array.prototype.forEach.call(branchListEl.querySelectorAll("li[data-id]"), function(li){
+      li.addEventListener("click", function(){
+        var id = li.getAttribute("data-id");
+        focusBranch(id);
+        openSheet(id);
+      });
+    });
+  }
 
-      <!-- SUBSIDY -->
-      ${subsidyTableHTML}
+  function escapeHtml(s){
+    return String(s).replace(/[&<>"']/g, function(c){
+      return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c];
+    });
+  }
 
-      <!-- WARRANTY -->
-      <div class="q-section">
-        <div class="q-title">Warranty Details</div>
-        <div class="w-grid">
-          ${WARRANTY.map(w => `<div class="w-item"><div class="wt">${w.item}</div><div class="wv">${w.val}</div></div>`).join('')}
-        </div>
-        <p style="font-size:11px;color:#888;margin-top:8px;">Warranty excludes damage from animals, Acts of God, or accidental damage. Separate invoice raised for the same.</p>
-      </div>
+  function focusBranch(id){
+    var b = branches.find(function(x){return x.id===id;});
+    if (!b || !map) return;
+    map.panTo({lat: b.lat, lng: b.lon});
+    if (map.getZoom() < 15) map.setZoom(15);
+  }
 
-      <!-- PAYMENT TERMS -->
-      <div class="q-section">
-        <div class="q-title">Payment Terms</div>
-        <div class="pay-bar">
-          <div class="pay-seg"><div class="pp">20%</div><div class="pl">Advance (Work Order)</div></div>
-          <div class="pay-seg"><div class="pp">70%</div><div class="pl">Before Material Delivery</div></div>
-          <div class="pay-seg"><div class="pp">10%</div><div class="pl">On Installation &amp; Commissioning</div></div>
-        </div>
-        <p style="font-size:11px;color:#888;margin-top:8px;">Payment via Demand Draft / RTGS / NEFT. 20% advance with confirmed work order.</p>
-      </div>
+  function rerenderAll(){ renderCounts(); renderMap(); renderList(); updateRankBadge(); }
+  var trailPicker = document.getElementById("trailPicker");
+  if (trailPicker) trailPicker.addEventListener("change", drawTrail);
 
-      <!-- BANK -->
-      <div class="q-section">
-        <div class="q-title">Bank Account Details</div>
-        <div style="background:#f1f8f1;border-radius:10px;padding:14px 16px;">
-          <div class="bank-grid">
-            <div class="bank-item"><label>Account Name</label>${BRAND.bank.name}</div>
-            <div class="bank-item"><label>Bank</label>${BRAND.bank.bank}</div>
-            <div class="bank-item"><label>Account No.</label><b>${BRAND.bank.acno}</b></div>
-            <div class="bank-item"><label>Account Type</label>${BRAND.bank.type}</div>
-            <div class="bank-item"><label>IFSC Code</label>${BRAND.bank.ifsc}</div>
-          </div>
-        </div>
-      </div>
-
-      <!-- SIGNATURE -->
-      <div class="sig-row">
-        <div class="sig-box">
-          <div style="font-size:11.5px;color:#555;">For Yatinidhi Solar (YCPL)</div>
-          <div class="sig-name">${eName}</div>
-          <div class="sig-role">${eDesg} · 📞 ${eContact}</div>
-          <div class="sig-line">Authorised Signature &amp; Seal</div>
-        </div>
-        <div class="sig-box">
-          <div style="font-size:11.5px;color:#555;">Customer Acceptance</div>
-          <div class="sig-name">${cName}</div>
-          <div class="sig-role">${cMobile}</div>
-          <div class="sig-line">Customer Signature &amp; Date</div>
-        </div>
-      </div>
-
-    </div>
-    <div class="quot-footer">
-      <span>☀ ${BRAND.name} · ${BRAND.byline} · GSTN: ${BRAND.gstn}</span>
-      <span>${BRAND.email} &nbsp;|&nbsp; ${BRAND.website}</span>
-    </div>`;
-
-  document.getElementById('quotation-doc').innerHTML = html;
-}
-
-// ===== NUMBER TO WORDS (Indian) =====
-function numWords(n) {
-  n = Math.round(n);
-  const a = ['','One','Two','Three','Four','Five','Six','Seven','Eight','Nine',
-    'Ten','Eleven','Twelve','Thirteen','Fourteen','Fifteen','Sixteen','Seventeen','Eighteen','Nineteen'];
-  const b = ['','','Twenty','Thirty','Forty','Fifty','Sixty','Seventy','Eighty','Ninety'];
-  function tw(n) { return n < 20 ? a[n] : b[Math.floor(n/10)] + (n%10 ? ' '+a[n%10] : ''); }
-  function th(n) { return n < 100 ? tw(n) : a[Math.floor(n/100)] + ' Hundred' + (n%100 ? ' '+tw(n%100) : ''); }
-  if (n === 0) return 'Zero';
-  let cr = Math.floor(n/10000000); let rem = n % 10000000;
-  let lk = Math.floor(rem/100000); rem = rem % 100000;
-  let th2 = Math.floor(rem/1000); rem = rem % 1000;
-  let parts = [];
-  if (cr) parts.push(th(cr)+' Crore');
-  if (lk) parts.push(th(lk)+' Lakh');
-  if (th2) parts.push(th(th2)+' Thousand');
-  if (rem) parts.push(th(rem));
-  return parts.join(' ');
-}
-
-// ===== RESET =====
-function resetForm() {
-  ['cust-name','cust-mobile','cust-email','cust-address','notes','custom-rate'].forEach(id => document.getElementById(id).value = '');
-  document.getElementById('cust-roof').value = 'RCC Flat';
-  document.getElementById('sys-type').value  = 'On-Grid';
-  document.getElementById('emp-name').value    = 'Mr. Rishabh Shukla';
-  document.getElementById('emp-desg').value    = 'Sales Executive';
-  document.getElementById('emp-contact').value = '7007895157';
-  document.querySelectorAll('.addon-row:not(.locked)').forEach(r => {
-    r.classList.remove('sel');
-    r.querySelector('.addon-chk').textContent = '';
+  // ---------- map controls ----------
+  document.getElementById("zoomIn").addEventListener("click", function(){ if (map) map.setZoom(map.getZoom() + 1); });
+  document.getElementById("zoomOut").addEventListener("click", function(){ if (map) map.setZoom(map.getZoom() - 1); });
+  document.getElementById("zoomReset").addEventListener("click", function(){
+    if (!map) return;
+    var f = activeFilters();
+    var pts = branches.filter(function(b){ return passesFilter(b, f); });
+    if (!pts.length) {
+      var zc = ZONE_CENTER[currentZone];
+      if (zc) { map.setCenter({lat: zc.lat, lng: zc.lng}); map.setZoom(zc.zoom); }
+      return;
+    }
+    var bounds = new google.maps.LatLngBounds();
+    pts.forEach(function(b){ bounds.extend({lat: b.lat, lng: b.lon}); });
+    map.fitBounds(bounds, 40);
   });
-  document.getElementById('paint-sub').classList.remove('show');
-  document.getElementById('paint-info').classList.remove('show');
-  document.getElementById('paint-price-label').textContent = 'Select to calculate';
-  document.getElementById('paint-manual').value = '';
-  document.getElementById('show-subsidy').checked = true;
-  selectedSize = SIZES[2];
-  document.querySelectorAll('.size-card').forEach((c,i) => c.classList.toggle('sel', i===2));
-  recalc();
-}
 
-// ===== RUN =====
-init();
+  // ---------- zone tabs ----------
+  Array.prototype.forEach.call(document.querySelectorAll(".zone-tab"), function(btn){
+    btn.addEventListener("click", function(){
+      if (btn.getAttribute("data-zone") === currentZone) return;
+      currentZone = btn.getAttribute("data-zone");
+      Array.prototype.forEach.call(document.querySelectorAll(".zone-tab"), function(b){
+        b.classList.toggle("active", b === btn);
+      });
+      var zc = ZONE_CENTER[currentZone];
+      if (map && zc) { map.setCenter({lat: zc.lat, lng: zc.lng}); map.setZoom(zc.zoom); }
+      rerenderAll();
+    });
+  });
+
+  // ---------- filters wiring ----------
+  Array.prototype.forEach.call(document.querySelectorAll(".f-bank,.f-city,.f-kind"), function(el){
+    el.addEventListener("change", rerenderAll);
+  });
+  document.getElementById("statusFilter").addEventListener("change", rerenderAll);
+  document.getElementById("search").addEventListener("input", rerenderAll);
+
+  // ---------- mobile rail toggle ----------
+  document.getElementById("railToggle").addEventListener("click", function(){
+    document.getElementById("rail").classList.toggle("open");
+  });
+
+  // ---------- detail sheet ----------
+  var sheet = document.getElementById("sheet");
+  var sheetBackdrop = document.getElementById("sheetBackdrop");
+  var statusPick = document.getElementById("statusPick");
+  var pendingStatus = "";
+
+  function openSheet(id){
+    selectedId = id;
+    var b = branches.find(function(x){return x.id===id;});
+    if (!b) return;
+    var c = claims[id] || {};
+    var kind = b.kind || "Branch";
+    document.getElementById("sheetBankChip").textContent = BANK_FULL[b.bank] || b.bank;
+    document.getElementById("sheetBankChip").style.background = pinColor(b);
+    document.getElementById("sheetName").innerHTML =
+      '<span style="width:12px;height:12px;border-radius:50%;display:inline-block;margin-right:.4rem;background:'+pinColor(b)+'"></span>' +
+      escapeHtml(b.name);
+    document.getElementById("sheetSub").textContent = kind + " · " + b.city + (b.approx ? " · approximate location" : "");
+    pendingStatus = c.status || "";
+    paintStatusPick();
+    paintClaimBox(b, c);
+    document.getElementById("sheetMeta").textContent = c.updatedBy
+      ? "Last updated by " + c.updatedBy + (c.updatedAt ? " · " + new Date(c.updatedAt).toLocaleString() : "")
+      : "No updates logged yet.";
+    document.getElementById("saveNote").textContent = "";
+    applyLock(!canActOn(c), c);
+    resetEntryForm();
+    renderEntries(id);
+    sheet.classList.add("open"); sheet.setAttribute("aria-hidden","false");
+    sheetBackdrop.classList.add("open");
+    renderMap(); renderList();
+  }
+  function closeSheet(){
+    sheet.classList.remove("open"); sheet.setAttribute("aria-hidden","true");
+    sheetBackdrop.classList.remove("open");
+    selectedId = null; renderMap(); renderList();
+  }
+  document.getElementById("sheetClose").addEventListener("click", closeSheet);
+  document.getElementById("sheetCancel").addEventListener("click", closeSheet);
+  sheetBackdrop.addEventListener("click", closeSheet);
+
+  function paintStatusPick(){
+    Array.prototype.forEach.call(statusPick.querySelectorAll("button"), function(btn){
+      var v = btn.getAttribute("data-v");
+      var active = v === pendingStatus;
+      btn.classList.toggle("active", active);
+      btn.style.background = active ? STATUS_COLOR[v] : "";
+      btn.style.borderColor = active ? STATUS_COLOR[v] : "";
+      btn.disabled = !canEditStatus();
+    });
+    document.getElementById("statusAdminNote").hidden = canEditStatus();
+  }
+  Array.prototype.forEach.call(statusPick.querySelectorAll("button"), function(btn){
+    btn.addEventListener("click", function(){
+      if (!canEditStatus()) return;
+      pendingStatus = btn.getAttribute("data-v"); paintStatusPick();
+    });
+  });
+
+  function paintClaimBox(b, c){
+    var box = document.getElementById("claimBox");
+    if (c.claimedBy) {
+      box.innerHTML = 'Flag planted by <span class="who">'+escapeHtml(c.claimedBy)+'</span>'+
+        (canAdmin
+          ? '<button type="button" class="btn btn-ghost" id="releaseBtn" style="margin-top:.4rem">Reopen for someone else (admin)</button>'
+          : '<p style="font-size:.72rem;color:var(--muted);margin:.4rem 0 0">Occupied &mdash; only an admin can reopen this territory for someone else.</p>');
+      var rb = document.getElementById("releaseBtn");
+      if (rb) rb.addEventListener("click", function(){ saveUpdate(b.id, {claimedBy:null, status:"", releaseOnly:true}); });
+    } else {
+      box.innerHTML = 'Unclaimed territory &mdash; no flag planted yet.'+
+        '<button type="button" class="btn btn-primary" id="claimBtn" style="margin-top:.4rem">Plant your flag</button>';
+      var cb = document.getElementById("claimBtn");
+      if (cb) cb.addEventListener("click", function(){
+        if (!flPicker.value) { document.getElementById("saveNote").textContent = "Pick your name at the top first."; return; }
+        saveUpdate(b.id, {claimedBy:flPicker.value, status:"Occupied", claimOnly:true});
+      });
+    }
+  }
+
+  function applyLock(locked, c){
+    var note = document.getElementById("lockNote");
+    document.getElementById("sheetSave").disabled = locked || !canEditStatus();
+    Array.prototype.forEach.call(document.getElementById("entryFormWrap").querySelectorAll("input,select,button"), function(el){ el.disabled = locked; });
+    if (!locked) refreshEntrySaveBtn();
+    if (locked) {
+      note.hidden = false;
+      note.textContent = (c && c.claimedBy)
+        ? "Occupied by " + c.claimedBy + " — only they or an admin can log a campaign here."
+        : "Plant your flag on this territory first (above) to log a campaign.";
+    } else {
+      note.hidden = true;
+    }
+  }
+
+  // ---------- visit log ----------
+  var pendingGeo = null;
+
+  function addMeetingRow(){
+    var wrap = document.getElementById("meetingRows");
+    var row = document.createElement("div");
+    row.className = "meeting-row";
+    row.innerHTML =
+      '<button type="button" class="meet-remove" aria-label="Remove this entry">&times;</button>' +
+      '<span class="meet-index"></span>' +
+      '<div class="field"><label>Met with (name)</label><input type="text" data-field="metWith" placeholder="Name of person met"></div>' +
+      '<div class="field"><label>Contact</label><input type="text" data-field="contact" placeholder="Phone number"></div>' +
+      '<div class="field"><label>Amount shifted?</label><select data-field="amountShifted"><option value="no">No</option><option value="yes">Yes</option></select></div>' +
+      '<div class="field meet-amount-wrap" data-amount-wrap><label>Amount (&#8377;)</label><input type="number" data-field="amount" placeholder="0" min="0" step="1"></div>' +
+      '<div class="field"><label>Remark &mdash; optional</label><input type="text" data-field="remark" placeholder="Short remark&hellip;"></div>';
+    wrap.appendChild(row);
+    row.querySelector(".meet-remove").addEventListener("click", function(){
+      if (document.querySelectorAll("#meetingRows .meeting-row").length <= 1) {
+        Array.prototype.forEach.call(row.querySelectorAll("input"), function(el){ el.value = ""; });
+        row.querySelector('[data-field="amountShifted"]').value = "no";
+        row.querySelector("[data-amount-wrap]").classList.remove("show");
+        return;
+      }
+      wrap.removeChild(row);
+      renumberMeetingRows();
+      refreshEntrySaveBtn();
+    });
+    var shiftedSel = row.querySelector('[data-field="amountShifted"]');
+    var amtWrap = row.querySelector("[data-amount-wrap]");
+    shiftedSel.addEventListener("change", function(){
+      amtWrap.classList.toggle("show", shiftedSel.value === "yes");
+      if (shiftedSel.value !== "yes") row.querySelector('[data-field="amount"]').value = "";
+    });
+    renumberMeetingRows();
+    return row;
+  }
+  function renumberMeetingRows(){
+    var rows = document.querySelectorAll("#meetingRows .meeting-row");
+    Array.prototype.forEach.call(rows, function(row, i){
+      row.querySelector(".meet-index").textContent = "Visit entry " + (i + 1);
+      row.querySelector(".meet-remove").hidden = rows.length <= 1;
+    });
+  }
+  document.getElementById("addMeetingBtn").addEventListener("click", function(){ addMeetingRow(); });
+
+  function resetEntryForm(){
+    pendingGeo = null;
+    document.getElementById("entryDate").value = new Date().toISOString().slice(0,10);
+    document.getElementById("meetingRows").innerHTML = "";
+    addMeetingRow();
+    document.getElementById("geoStatus").textContent = "";
+    document.getElementById("entrySaveNote").textContent = "";
+    refreshEntrySaveBtn();
+  }
+  function refreshEntrySaveBtn(){
+    var c = claims[selectedId] || {};
+    document.getElementById("entrySaveBtn").disabled = !canActOn(c) || !pendingGeo;
+  }
+  document.getElementById("geoBtn").addEventListener("click", function(){
+    var statusEl = document.getElementById("geoStatus");
+    if (!navigator.geolocation) { statusEl.textContent = "Location isn't available in this browser."; return; }
+    statusEl.textContent = "Getting your location…";
+    navigator.geolocation.getCurrentPosition(function(pos){
+      pendingGeo = { lat: pos.coords.latitude, lon: pos.coords.longitude, accuracy: pos.coords.accuracy };
+      statusEl.textContent = "Captured ✓ (±" + Math.round(pos.coords.accuracy) + "m accuracy)";
+      refreshEntrySaveBtn();
+    }, function(err){
+      pendingGeo = null;
+      statusEl.textContent = "Couldn't get your location (" + (err && err.message ? err.message : "permission denied") + "). Allow location access and try again.";
+      refreshEntrySaveBtn();
+    }, {enableHighAccuracy:true, timeout:12000, maximumAge:0});
+  });
+  document.getElementById("entrySaveBtn").addEventListener("click", function(){
+    var b = branches.find(function(x){return x.id===selectedId;});
+    var c = claims[selectedId] || {};
+    var noteEl = document.getElementById("entrySaveNote");
+    if (!b || !canActOn(c)) { noteEl.textContent = "You don't have permission to log a visit here."; return; }
+    if (!flPicker.value) { noteEl.textContent = "Pick your name at the top first."; return; }
+    if (!pendingGeo) { noteEl.textContent = "Capture your location first — geotagging is required for every visit."; return; }
+    if (!db) { noteEl.textContent = "Not connected — try reopening this page."; return; }
+
+    var date = document.getElementById("entryDate").value || new Date().toISOString().slice(0,10);
+    var distanceKm = Math.round(haversineKm(b.lat, b.lon, pendingGeo.lat, pendingGeo.lon) * 100) / 100;
+    var mismatch = distanceKm >= MISMATCH_KM;
+    var geo = {lat: pendingGeo.lat, lon: pendingGeo.lon, accuracy: pendingGeo.accuracy};
+    var nowIso = new Date().toISOString();
+
+    var rows = document.querySelectorAll("#meetingRows .meeting-row");
+    var bodies = [];
+    var blocked = false;
+    Array.prototype.forEach.call(rows, function(row){
+      var metWith = row.querySelector('[data-field="metWith"]').value.trim();
+      var contact = row.querySelector('[data-field="contact"]').value.trim();
+      var shifted = row.querySelector('[data-field="amountShifted"]').value === "yes";
+      var amountRaw = row.querySelector('[data-field="amount"]').value;
+      var remark = row.querySelector('[data-field="remark"]').value.trim();
+      if (!metWith && !contact && !remark && !shifted) return;
+      if (!metWith) { blocked = true; return; }
+      if (shifted && amountRaw === "") { blocked = true; return; }
+      bodies.push({
+        branchId: b.id, fl: flPicker.value,
+        metWith: metWith, contact: contact,
+        amountShifted: shifted, amount: shifted ? Number(amountRaw) : null,
+        remark: remark, date: date,
+        geo: geo, distanceKm: distanceKm, mismatch: mismatch,
+        createdAt: nowIso, createdBy: flPicker.value
+      });
+    });
+    if (blocked) { noteEl.textContent = "Each entry needs who you met with, and an amount if one was shifted."; return; }
+    if (!bodies.length) { noteEl.textContent = "Add at least one visit entry — who did you meet?"; return; }
+
+    noteEl.textContent = "Saving…";
+    var writes = bodies.map(function(body){
+      var id = "e_" + Date.now().toString(36) + Math.random().toString(36).slice(2,6) + Math.random().toString(36).slice(2,4);
+      return db.collection("entries").doc(id).set(body).then(function(){
+        var local = {}; for (var k in body) local[k] = body[k]; local.id = id;
+        entries.push(local);
+        return body;
+      });
+    });
+    Promise.all(writes).then(function(saved){
+      resetEntryForm();
+      var earned = saved.reduce(function(sum, body){
+        return sum + (body.mismatch ? POINTS.visitMismatch : POINTS.visitClean) + Math.floor((Number(body.amount) || 0) / 1000) * POINTS.perThousandConverted;
+      }, 0);
+      var anyMismatch = saved.some(function(body){ return body.mismatch; });
+      noteEl.textContent = (saved.length > 1 ? saved.length + " visit entries logged! " : "Campaign logged! ") +
+        (anyMismatch ? "(flagged: captured location was " + distanceKm + " km from the branch) " : "") +
+        "+" + earned + " pts";
+      renderEntries(selectedId);
+      renderCounts();
+      updateRankBadge();
+      maybeRerenderMonitor();
+    }).catch(function(err){
+      noteEl.textContent = "Couldn't save (" + (err && err.code || "error") + "). Try again.";
+    });
+  });
+  function renderEntries(branchId){
+    var list = entries.filter(function(e){return e.branchId===branchId;});
+    list.sort(function(a,b){ return (b.createdAt||"").localeCompare(a.createdAt||""); });
+    var el = document.getElementById("entryList");
+    if (!list.length) { el.innerHTML = '<p style="font-size:.78rem;color:var(--muted)">No campaigns logged yet.</p>'; return; }
+    el.innerHTML = list.map(function(e){
+      var geoBadge = e.geo
+        ? (e.mismatch
+            ? '<span class="geo-badge warn">&#9888; '+e.distanceKm+' km away</span>'
+            : '<span class="geo-badge ok">&#128205; on-site</span>')
+        : '<span class="geo-badge none">no location</span>';
+      var amt = (e.amountShifted && e.amount !== null && e.amount !== undefined) ? inr(e.amount) : "";
+      var shiftedBadge = e.amountShifted
+        ? '<span class="geo-badge ok">Amount shifted'+(amt?' &middot; '+amt:'')+'</span>'
+        : '<span class="geo-badge none">No amount shifted</span>';
+      return '<div class="entry-card">'+
+        '<div class="entry-top"><span>'+escapeHtml(e.date||"")+'</span><span>'+escapeHtml(e.fl||"")+'</span></div>'+
+        '<div class="entry-mid">Met '+(e.metWith ? escapeHtml(e.metWith) : "—")+(e.contact?' &middot; '+escapeHtml(e.contact):'')+'</div>'+
+        '<div class="entry-bottom">'+shiftedBadge+geoBadge+'</div>'+
+        (e.remark ? '<div class="entry-note">'+escapeHtml(e.remark)+'</div>' : '')+
+      '</div>';
+    }).join("");
+  }
+
+  // ---------- Victory Dashboard ----------
+  var monitorBackdrop = document.getElementById("monitorBackdrop");
+  var monitorPanel = document.getElementById("monitorPanel");
+  function maybeRerenderMonitor(){
+    if (monitorPanel.classList.contains("open")) renderMonitor();
+  }
+  function renderMonitor(){
+    var body = document.getElementById("monitorBody");
+    var claimedIds = Object.keys(claims).filter(function(k){return claims[k].claimedBy;});
+    var totalAmount = entries.reduce(function(s,e){return s + (Number(e.amount)||0);}, 0);
+    var totalMismatch = entries.filter(function(e){return e.mismatch;}).length;
+    var cs = conquestStats();
+    var overallPct = cs.total ? Math.round(cs.claimed / cs.total * 100) : 0;
+
+    var flStats = FL_NAMES.map(function(fl){
+      var mine = claimedIds.filter(function(id){return claims[id].claimedBy === fl;});
+      var castles = mine.filter(function(id){
+        var b = branches.find(function(x){return x.id===id;});
+        return b && (b.kind === "Regional Office" || b.kind === "Circle Office");
+      }).length;
+      var open = mine.filter(function(id){return claims[id].status === "Open";}).length;
+      var occupied = mine.filter(function(id){return claims[id].status === "Occupied";}).length;
+      var dead = mine.filter(function(id){return claims[id].status === "Dead";}).length;
+      var flEntries = entries.filter(function(e){return e.fl === fl;});
+      var amt = flEntries.reduce(function(s,e){return s + (Number(e.amount)||0);}, 0);
+      var mism = flEntries.filter(function(e){return e.mismatch;}).length;
+      return {
+        fl: fl, territories: mine.length, castles: castles, open: open, occupied: occupied, dead: dead,
+        visits: flEntries.length, amount: amt, mismatches: mism, points: computeFlScore(fl)
+      };
+    }).sort(function(a,b){ return b.points - a.points; });
+
+    var rows = flStats.map(function(s, i){
+      var crown = (i === 0 && s.points > 0) ? '<span class="leader-crown">&#128081;</span>' : '';
+      var swatch = '<span style="display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:.3rem;background:'+(FL_COLORS[s.fl]||'var(--accent)')+'"></span>';
+      return '<tr><td>'+crown+swatch+escapeHtml(s.fl)+'</td><td>'+escapeHtml(rankFor(s.points))+'</td><td>'+s.points+'</td>'+
+        '<td>'+s.territories+'</td><td>'+s.castles+'</td><td>'+s.visits+'</td><td>'+inr(s.amount)+'</td>'+
+        '<td>'+(s.mismatches ? '<span class="geo-badge warn">'+s.mismatches+'</span>' : '0')+'</td></tr>';
+    }).join("");
+
+    var zoneRows = ZONE_ORDER.map(function(z){
+      var zs = cs.byZone[z] || {total:0, claimed:0};
+      var pct = zs.total ? Math.round(zs.claimed / zs.total * 100) : 0;
+      return '<div class="conquest-row"><span class="zone-name">'+ZONE_LABELS[z]+'</span>'+
+        '<span class="conquest-track"><span class="conquest-fill" style="width:'+pct+'%"></span></span>'+
+        '<span class="conquest-pct">'+zs.claimed+'/'+zs.total+' &middot; '+pct+'%</span></div>';
+    }).join("");
+
+    var feedSrc = entries.slice().sort(function(a,b){ return (b.createdAt||"").localeCompare(a.createdAt||""); }).slice(0,40);
+    var feed = feedSrc.map(function(e){
+      var bx = branches.find(function(x){return x.id===e.branchId;});
+      var bankCode = bx ? (BANK_SHORT[bx.bank] || bx.bank) : "?";
+      var amt = (e.amountShifted && e.amount !== null && e.amount !== undefined && e.amount !== "") ? (' &middot; ' + inr(e.amount)) : '';
+      var geoBadge = e.geo
+        ? (e.mismatch ? '<span class="geo-badge warn">&#9888; '+e.distanceKm+' km</span>' : '<span class="geo-badge ok">on-site</span>')
+        : '<span class="geo-badge none">no location</span>';
+      return '<div class="feed-row">'+
+        '<span class="muted">'+escapeHtml(e.date||"")+'</span>'+
+        '<span class="fl">'+escapeHtml(e.fl||"")+'</span>'+
+        '<span>'+escapeHtml(bx ? bx.name : "Unknown location")+' ('+escapeHtml(bankCode)+')</span>'+
+        '<span class="muted">'+(e.metWith ? 'Met '+escapeHtml(e.metWith) : '')+amt+'</span>'+
+        geoBadge+
+      '</div>';
+    }).join("") || '<p style="color:var(--muted);font-size:.8rem">No campaigns logged yet.</p>';
+
+    body.innerHTML =
+      '<div class="monitor-stats">'+
+        '<span>'+branches.length+' territories</span>'+
+        '<span>'+claimedIds.length+' flags planted</span>'+
+        '<span>'+entries.length+' campaigns logged</span>'+
+        '<span>'+inr(totalAmount)+' total conquest value</span>'+
+        (totalMismatch ? '<span style="color:var(--status-dead)">'+totalMismatch+' scouting flags</span>' : '')+
+      '</div>'+
+      '<div class="conquest-meter">'+
+        '<p class="rail-title" style="margin-bottom:.1rem">NCR conquered</p>'+
+        '<div class="conquest-big">'+overallPct+'% &middot; '+cs.claimed+' / '+cs.total+'</div>'+
+        '<div class="conquest-track" style="height:14px;margin-top:.15rem"><span class="conquest-fill" style="width:'+overallPct+'%"></span></div>'+
+        '<div style="margin-top:.55rem;display:flex;flex-direction:column;gap:.35rem">'+zoneRows+'</div>'+
+      '</div>'+
+      '<div><p class="rail-title" style="margin-bottom:.4rem">Leaderboard</p>'+
+        '<table class="monitor-table"><thead><tr><th>Commander</th><th>Rank</th><th>Points</th><th>Territories</th><th>Castles</th><th>Visits</th><th>Value</th><th>Flags</th></tr></thead>'+
+        '<tbody>'+rows+'</tbody></table></div>'+
+      '<div><p class="rail-title" style="margin-bottom:.4rem">Battle log (latest 40)</p>'+feed+'</div>';
+  }
+  document.getElementById("monitorBtn").addEventListener("click", function(){
+    openAuth(function(){
+      renderMonitor();
+      monitorPanel.classList.add("open"); monitorPanel.setAttribute("aria-hidden","false");
+      monitorBackdrop.classList.add("open");
+    });
+  });
+  function closeMonitor(){
+    monitorPanel.classList.remove("open"); monitorPanel.setAttribute("aria-hidden","true");
+    monitorBackdrop.classList.remove("open");
+  }
+  document.getElementById("monitorClose").addEventListener("click", closeMonitor);
+  monitorBackdrop.addEventListener("click", closeMonitor);
+
+  // ---------- password gate (Monitor + master-file download + ADMIN rights) ----------
+  // Same honesty-based model as the original: the password's SHA-256 hash
+  // lives in this page's own source. On a standalone site there's no
+  // separate "platform admin" concept, so entering this password now also
+  // grants the admin rights (status override, add-location, data import)
+  // that used to come from a logged-in Claude workspace member.
+  var APP_PASSWORD_HASH = "3a21357da0719c86b20b283fe7f39658a3af22e34b02fd595cca8859ed9f3909"; // sha256("NCRBranch@2026")
+  var isUnlocked = false;
+  var authPendingCallback = null;
+  var authBackdrop = document.getElementById("authBackdrop");
+  var authPanel = document.getElementById("authPanel");
+  var authInput = document.getElementById("authInput");
+  var authError = document.getElementById("authError");
+
+  function sha256Hex(str){
+    if (!window.crypto || !window.crypto.subtle) return Promise.reject(new Error("no-subtlecrypto"));
+    var enc = new TextEncoder().encode(str);
+    return window.crypto.subtle.digest("SHA-256", enc).then(function(buf){
+      var bytes = new Uint8Array(buf), hex = "";
+      for (var i = 0; i < bytes.length; i++) { hex += bytes[i].toString(16).padStart(2, "0"); }
+      return hex;
+    });
+  }
+  function openAuth(onSuccess){
+    if (isUnlocked) { onSuccess(); return; }
+    authPendingCallback = onSuccess;
+    authInput.value = "";
+    authError.hidden = true;
+    authBackdrop.classList.add("open"); authPanel.classList.add("open"); authPanel.setAttribute("aria-hidden","false");
+    setTimeout(function(){ authInput.focus(); }, 10);
+  }
+  function closeAuth(){
+    authBackdrop.classList.remove("open"); authPanel.classList.remove("open"); authPanel.setAttribute("aria-hidden","true");
+    authPendingCallback = null;
+  }
+  function submitAuth(){
+    var val = authInput.value;
+    if (!val) { authError.textContent = "Enter the password."; authError.hidden = false; return; }
+    sha256Hex(val).then(function(hex){
+      if (hex === APP_PASSWORD_HASH) {
+        isUnlocked = true;
+        canAdmin = true;
+        document.getElementById("adminAdd").hidden = false;
+        document.getElementById("importBtn").hidden = false;
+        if (selectedId) openSheet(selectedId);
+        rerenderAll();
+        var cb = authPendingCallback;
+        closeAuth();
+        if (cb) cb();
+      } else {
+        authError.textContent = "Incorrect password.";
+        authError.hidden = false;
+        authInput.value = "";
+        authInput.focus();
+      }
+    }).catch(function(){
+      authError.textContent = "This browser can't verify the password securely.";
+      authError.hidden = false;
+    });
+  }
+  document.getElementById("authSubmit").addEventListener("click", submitAuth);
+  document.getElementById("authCancel").addEventListener("click", closeAuth);
+  authBackdrop.addEventListener("click", closeAuth);
+  authInput.addEventListener("keydown", function(e){ if (e.key === "Enter") submitAuth(); });
+
+  // ---------- master file download (password-gated, plain browser download) ----------
+  function csvCell(v){
+    if (v === null || v === undefined) return "";
+    var s = String(v);
+    if (/[",\n\r]/.test(s)) s = '"' + s.replace(/"/g, '""') + '"';
+    return s;
+  }
+  function buildMasterCSV(){
+    var headers = ["Branch ID","Bank","Office Type","City","Name","Latitude","Longitude",
+      "Status","Claimed By","Last Updated By","Last Updated At",
+      "Visits Logged","Total Amount (INR)","Last Visit Date","Location Mismatches"];
+    var rows = [headers];
+    branches.slice().sort(function(a,b){ return a.name.localeCompare(b.name); }).forEach(function(b){
+      var c = claims[b.id] || {};
+      var flEntries = entries.filter(function(e){ return e.branchId === b.id; });
+      var totalAmt = flEntries.reduce(function(s,e){ return s + (Number(e.amount) || 0); }, 0);
+      var lastVisit = flEntries.reduce(function(latest, e){ return (e.date || "") > latest ? (e.date || "") : latest; }, "");
+      var mismatches = flEntries.filter(function(e){ return e.mismatch; }).length;
+      rows.push([
+        b.id, BANK_FULL[b.bank] || b.bank, b.kind || "Branch", b.city, b.name, b.lat, b.lon,
+        c.status || "", c.claimedBy || "", c.updatedBy || "", c.updatedAt || "",
+        flEntries.length, totalAmt, lastVisit, mismatches
+      ]);
+    });
+    return rows.map(function(r){ return r.map(csvCell).join(","); }).join("\r\n");
+  }
+  function downloadMasterFile(){
+    var statusEl = document.getElementById("downloadStatus");
+    statusEl.textContent = "Preparing file…";
+    var csv = buildMasterCSV();
+    var ts = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
+    var filename = "ncr_branch_master_" + ts + ".csv";
+    var blob = new Blob(["﻿" + csv], {type: "text/csv;charset=utf-8;"});
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement("a");
+    a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    setTimeout(function(){ URL.revokeObjectURL(url); }, 2000);
+    statusEl.textContent = "Saved.";
+  }
+  document.getElementById("downloadBtn").addEventListener("click", function(){
+    openAuth(downloadMasterFile);
+  });
+
+  // ---------- one-time master data import (admin only) ----------
+  document.getElementById("importBtn").addEventListener("click", function(){
+    if (!canAdmin || !db) return;
+    if (!confirm("This loads the full master branch list (data/branches.json) into the live database. Safe to run more than once. Continue?")) return;
+    importMasterData();
+  });
+  function importMasterData(){
+    var statusEl = document.getElementById("downloadStatus");
+    statusEl.textContent = "Importing…";
+    fetch("data/branches.json").then(function(r){ return r.json(); }).then(function(list){
+      var CHUNK = 450; // stay comfortably under Firestore's 500-write batch limit
+      var chunks = [];
+      for (var i = 0; i < list.length; i += CHUNK) chunks.push(list.slice(i, i + CHUNK));
+      var p = Promise.resolve();
+      chunks.forEach(function(chunk, idx){
+        p = p.then(function(){
+          var batch = db.batch();
+          chunk.forEach(function(b){
+            var id = b.id, data = {};
+            for (var k in b) if (k !== "id") data[k] = b[k];
+            batch.set(db.collection("branches").doc(id), data);
+          });
+          statusEl.textContent = "Importing… batch " + (idx + 1) + "/" + chunks.length;
+          return batch.commit();
+        });
+      });
+      return p;
+    }).then(function(){
+      statusEl.textContent = "Import complete (" + branches.length + " locations).";
+    }).catch(function(err){
+      statusEl.textContent = "Import failed (" + (err && err.message || "error") + ").";
+    });
+  }
+
+  document.getElementById("sheetSave").addEventListener("click", function(){
+    if (!flPicker.value) { document.getElementById("saveNote").textContent = "Pick your name at the top first."; return; }
+    if (!canEditStatus()) { document.getElementById("saveNote").textContent = "Only an admin can change the coverage status by hand."; return; }
+    saveUpdate(selectedId, {
+      status: pendingStatus,
+      claimedBy: (claims[selectedId] && claims[selectedId].claimedBy) || flPicker.value
+    });
+  });
+
+  function saveUpdate(id, patch){
+    if (!db) { document.getElementById("saveNote").textContent = "Not connected — try reopening this page."; return; }
+    var prev = claims[id] || {};
+    var body = {
+      claimedBy: patch.claimedBy !== undefined ? patch.claimedBy : (prev.claimedBy || null),
+      status: patch.status !== undefined ? patch.status : (prev.status || ""),
+      updatedAt: new Date().toISOString(),
+      updatedBy: flPicker.value || prev.updatedBy || ""
+    };
+    document.getElementById("saveNote").textContent = "Saving…";
+    db.collection("claims").doc(id).set(body).then(function(){
+      document.getElementById("saveNote").textContent = "Saved.";
+      claims[id] = body;
+      if (selectedId === id) openSheet(id);
+      rerenderAll();
+    }).catch(function(err){
+      document.getElementById("saveNote").textContent = "Couldn't save (" + (err && err.code || "error") + "). Try again.";
+    });
+  }
+
+  // ---------- admin: add a branch/office ----------
+  document.getElementById("addForm").addEventListener("submit", function(e){
+    e.preventDefault();
+    if (!db) return;
+    var kind = document.getElementById("addKind").value;
+    var bank = document.getElementById("addBank").value;
+    var city = document.getElementById("addCity").value;
+    var name = document.getElementById("addName").value.trim();
+    if (!name) return;
+    var c = cityCentroid(city);
+    var id = "b_" + Date.now().toString(36) + Math.random().toString(36).slice(2,6);
+    db.collection("branches").doc(id).set({
+      bank: bank, city: city, name: name, kind: kind,
+      lat: c[0] + (Math.random()-0.5)*0.02, lon: c[1] + (Math.random()-0.5)*0.02,
+      approx: true
+    }).then(function(){
+      document.getElementById("addName").value = "";
+    });
+  });
+  function cityCentroid(city){
+    return CITY_CENTROID[city] || CITY_CENTROID["Delhi"];
+  }
+
+  // ---------- db helpers ----------
+  function cloneWithId(d){
+    var v = d.data() || {};
+    var out = {};
+    for (var k in v) out[k] = v[k];
+    out.id = d.id;
+    return out;
+  }
+
+  // ---------- local cache of the branches list (per-viewer convenience) ----------
+  var BRANCH_CACHE_KEY = "ncrbm_branches_cache_v1";
+  function loadBranchCache(){
+    try {
+      var raw = localStorage.getItem(BRANCH_CACHE_KEY);
+      if (!raw) return;
+      var parsed = JSON.parse(raw);
+      if (!parsed || !Array.isArray(parsed.branches) || !parsed.branches.length) return;
+      branches = parsed.branches;
+      rerenderAll();
+    } catch (e) {}
+  }
+  function saveBranchCache(list){
+    try { localStorage.setItem(BRANCH_CACHE_KEY, JSON.stringify({ branches: list, savedAt: Date.now() })); }
+    catch (e) {}
+  }
+
+  // ---------- Google Maps bootstrap ----------
+  window.initMap = function(){
+    var zc = ZONE_CENTER[currentZone];
+    map = new google.maps.Map(document.getElementById("map"), {
+      center: {lat: zc.lat, lng: zc.lng}, zoom: zc.zoom,
+      mapTypeControl: false, streetViewControl: false, fullscreenControl: false,
+      clickableIcons: false, gestureHandling: "greedy",
+      styles: [
+        {featureType:"poi", stylers:[{visibility:"off"}]},
+        {featureType:"transit", stylers:[{visibility:"off"}]}
+      ]
+    });
+    renderMap(); // paint any branches already loaded from Firestore/cache
+  };
+  window.gm_authFailure = function(){
+    document.getElementById("configBanner").hidden = false;
+    document.getElementById("configBanner").textContent = "Google Maps couldn't authenticate this API key — check GOOGLE_MAPS_API_KEY and its restrictions (see README.md).";
+  };
+  (function loadGoogleMaps(){
+    if (!GOOGLE_MAPS_API_KEY || GOOGLE_MAPS_API_KEY === "YOUR_GOOGLE_MAPS_API_KEY") {
+      document.getElementById("configBanner").hidden = false;
+      return;
+    }
+    var s = document.createElement("script");
+    s.src = "https://maps.googleapis.com/maps/api/js?key=" + encodeURIComponent(GOOGLE_MAPS_API_KEY) + "&callback=initMap&loading=async";
+    s.async = true; s.defer = true;
+    document.head.appendChild(s);
+  })();
+
+  // ---------- Firestore bootstrap ----------
+  function boot(){
+    loadBranchCache();
+    if (!FIREBASE_CONFIG || FIREBASE_CONFIG.apiKey === "YOUR_FIREBASE_API_KEY") {
+      showUnavailable("Firebase isn't configured yet — open index.html and fill in FIREBASE_CONFIG near the top (see README.md).");
+      document.getElementById("configBanner").hidden = false;
+      return;
+    }
+    try {
+      firebase.initializeApp(FIREBASE_CONFIG);
+      db = firebase.firestore();
+    } catch (e) {
+      console.error("firebase-init", e);
+      showUnavailable("Couldn't start Firestore — check FIREBASE_CONFIG.");
+      return;
+    }
+
+    var branchesLoaded = false;
+    setTimeout(function(){
+      if (branchesLoaded || (branches && branches.length)) return;
+      showUnavailable("Still waiting for the location list to load — check your Firestore rules/config, or try reloading.");
+    }, 20000);
+
+    db.collection("branches").onSnapshot(function(snap){
+      try {
+        branchesLoaded = true;
+        branches = snap.docs.map(cloneWithId);
+        rerenderAll();
+        maybeRerenderMonitor();
+        saveBranchCache(branches);
+      } catch (e) {
+        console.error("branches-process", e);
+        showUnavailable("Couldn't read location data. Try reloading.");
+      }
+    }, function(err){
+      console.error("branches", err);
+      showUnavailable("Couldn't load location data (" + (err && err.code || "error") + "). Check your Firestore rules.");
+    });
+    db.collection("claims").onSnapshot(function(snap){
+      try {
+        var next = {};
+        snap.docs.forEach(function(d){
+          var data = d.data() || {};
+          if (data.status === "Closed") data.status = "Occupied";
+          next[d.id] = data;
+        });
+        claims = next;
+        rerenderAll();
+        maybeRerenderMonitor();
+      } catch (e) { console.error("claims-process", e); }
+    }, function(err){ console.error("claims", err); });
+    db.collection("entries").onSnapshot(function(snap){
+      try {
+        entries = snap.docs.map(cloneWithId);
+        renderCounts();
+        if (selectedId) renderEntries(selectedId);
+        maybeRerenderMonitor();
+      } catch (e) { console.error("entries-process", e); }
+    }, function(err){ console.error("entries", err); });
+  }
+  function showUnavailable(msg){
+    statsLine.textContent = "Live data unavailable.";
+    branchListEl.innerHTML = '<li style="cursor:default;color:var(--muted)">' + escapeHtml(msg || "This page can't reach the shared location data right now.") + '</li>';
+  }
+
+  window.addEventListener("resize", function(){ /* Google Maps resizes itself */ });
+  branchListEl.innerHTML = '<li style="cursor:default;color:var(--muted)">Loading locations&hellip;</li>';
+  boot();
+})();
 </script>
 
-<!-- README -->
-<!--
-  ╔══════════════════════════════════════════════════════════════╗
-  ║         YATINIDHI SOLAR — QUOTATION GENERATOR v1.0          ║
-  ║             FIRST DRAFT — FOR INTERNAL REVIEW               ║
-  ╠══════════════════════════════════════════════════════════════╣
-  ║  FILE: yatinidhi-quotation-v1.html                          ║
-  ║  SINGLE FILE: HTML + CSS + JS (no dependencies needed)      ║
-  ╠══════════════════════════════════════════════════════════════╣
-  ║  HOW TO USE                                                  ║
-  ║  1. Open in Chrome / Edge for best results                  ║
-  ║  2. Fill Form → click "Generate Quotation"                  ║
-  ║  3. Click Print / Save PDF → use browser print dialog       ║
-  ║     (Chrome: set margins to None, enable Background graphics)
-  ╠══════════════════════════════════════════════════════════════╣
-  ║  FEATURES IN THIS BUILD                                      ║
-  ║  ✅ Customer details (editable)                              ║
-  ║  ✅ Employee / Preparer details (editable)                   ║
-  ║  ✅ 6 System sizes (1–10kW) with click-select               ║
-  ║  ✅ Custom rate override field                               ║
-  ║  ✅ System type: On-Grid / Off-Grid / Hybrid                ║
-  ║  ✅ 5 Component brand dropdowns                             ║
-  ║  ✅ Add-on services with live price toggle                   ║
-  ║     → AMC 1yr / 3yr / 5yr                                   ║
-  ║     → Battery Backup                                         ║
-  ║     → Roof White Heat-Reflective Paint (NEW)                ║
-  ║        — Auto sqft from kW (100 sqft/kW)                    ║
-  ║        — Manual sqft override                               ║
-  ║        — Editable rate (default ₹30/sqft)                   ║
-  ║     → Extra Civil Work (at actual)                           ║
-  ║     → Extra Cable Run (at actual)                            ║
-  ║  ✅ Live pricing summary (GROSS TOTAL, Subsidy, NET)        ║
-  ║  ✅ Subsidy toggle (Central CFA + UP State)                 ║
-  ║  ✅ Additional notes / remarks field                         ║
-  ║  ✅ Full quotation document preview                          ║
-  ║     → BOM table with all selected items                      ║
-  ║     → Amount column with correct add-on totals              ║
-  ║     → Grand Total with Indian number words                  ║
-  ║     → Subsidy table                                          ║
-  ║     → Warranty details                                       ║
-  ║     → Payment terms (20/70/10%)                             ║
-  ║     → Bank account details                                   ║
-  ║     → Dual signature block                                   ║
-  ║  ✅ Print / Save as PDF button                               ║
-  ╠══════════════════════════════════════════════════════════════╣
-  ║  KNOWN DRAFT ISSUES (PLEASE REVIEW)                         ║
-  ║  □ Panel performance warranty years left blank in source    ║
-  ║    PDF — filled as "25–30 Years" as industry standard       ║
-  ║  □ Quotation number / serial (not in source) — add if needed║
-  ║  □ GSTN on quotation header — confirm correct               ║
-  ║  □ Roof paint sqft formula (100 sqft/kW) — confirm with ops ║
-  ║  □ AMC pricing — confirm current rates                       ║
-  ╠══════════════════════════════════════════════════════════════╣
-  ║  TO EMBED ON WEBSITE                                         ║
-  ║  Option A: iframe → <iframe src="quotation.html">            ║
-  ║  Option B: extract JS/CSS into your existing page           ║
-  ║  Option C: hand to developer for React/Vue conversion        ║
-  ╚══════════════════════════════════════════════════════════════╝
--->
 </body>
 </html>
